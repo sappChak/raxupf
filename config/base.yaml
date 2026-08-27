@@ -1,0 +1,14 @@
+pfcp:
+  addr: 127.0.0.1 # IP addr for listening
+  node_id: 127.0.0.1 # External IP or FQDN can be reached
+  ret_timeout: 1s # retransmission timeout
+  max_ret: 3 # the max number of retransmission
+
+api:
+  addr: "0.0.0.0"
+  port: 8080
+  prefix: "/api/v1/"
+
+logger: # log output setting
+  name: raxupf
+  level: debug
