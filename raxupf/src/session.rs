@@ -1,213 +1,189 @@
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr};
 
-use log::{debug, warn};
-use raxupf_common::{far::FarInfo, pdr::PdrInfo};
+use anyhow::bail;
+use log::{debug, error, warn};
+use raxupf_common::{SessionContextPod, far::FarInfo, pdr::PdrInfo, qer::QerInfo, urr::UrrInfo};
 use rs_pfcp::{
-    ie::{
-        Ie, cause::CauseValue, create_far::CreateFar, create_pdr::CreatePdr, create_qer::CreateQer,
-        create_urr::CreateUrr, fseid::Fseid, node_id::NodeId,
-    },
+    error::PfcpError,
+    ie::{cause::CauseValue, fseid::Fseid, node_id::NodeId},
     message::{
-        Message, SessionEstablishmentRequest,
+        Message, SessionEstablishmentRequest, SessionModificationRequest,
         session_establishment_response::SessionEstablishmentResponseBuilder,
+        session_modification_response::SessionModificationResponseBuilder,
     },
 };
-use tokio::{net::UdpSocket, sync::Mutex};
 
-use crate::association::PfcpAssociation;
+use crate::{helpers::create_rules, pfcp::PfcpContext};
 
+#[derive(Clone)]
 pub struct PfcpSession {
-    local_fseid: u64,
-    remote_fseid: u64,
-    pdrs: HashMap<u32, PdrInfo>,
-    fars: HashMap<u32, FarInfo>,
+    local_seid: u64,
+    remote_seid: u64,
+    ul_pdrs: HashMap<u16, PdrInfo>, // key: pdr id
+    dl_pdrs: HashMap<u16, PdrInfo>, // key: pdr id
+    fars: HashMap<u32, FarInfo>,    // key: far id
+    qers: HashMap<u32, QerInfo>,
+    urrs: HashMap<u32, UrrInfo>,
 }
 
 impl PfcpSession {
-    pub fn new(local_fseid: u64, remote_fseid: u64) -> Self {
+    pub fn new(local_seid: u64, remote_seid: u64) -> Self {
         Self {
-            local_fseid,
-            remote_fseid,
-            pdrs: HashMap::new(),
+            local_seid,
+            remote_seid,
+            ul_pdrs: HashMap::new(),
+            dl_pdrs: HashMap::new(),
             fars: HashMap::new(),
+            qers: HashMap::new(),
+            urrs: HashMap::new(),
         }
     }
-}
 
-pub struct SessionPdrInfo {
-    pdr_info: PdrInfo,
-    allocated: bool,
-    qer_idx: usize,
-    urr_idx: usize,
-}
+    pub fn insert_ul_pdr(&mut self, id: u16, info: PdrInfo) {
+        self.ul_pdrs.insert(id, info);
+    }
 
-impl SessionPdrInfo {
-    pub fn new(pdr_info: PdrInfo) -> Self {
-        Self {
-            pdr_info,
-            allocated: false,
-            qer_idx: 0,
-            urr_idx: 0,
-        }
+    pub fn insert_dl_pdr(&mut self, id: u16, info: PdrInfo) {
+        self.dl_pdrs.insert(id, info);
+    }
+
+    pub fn insert_far(&mut self, id: u32, info: FarInfo) {
+        self.fars.insert(id, info);
+    }
+
+    pub fn compile(&self) -> SessionContextPod {
+        let ul_pdrs = todo!();
+        let dl_pdrs = todo!();
+        SessionContextPod::new(ul_pdrs, dl_pdrs)
     }
 }
 
 pub async fn handle_session_establishment_request(
-    socket: &UdpSocket,
-    buf: &[u8],
-    len: usize,
-    addr: SocketAddr,
-    associations: Arc<Mutex<HashMap<String, PfcpAssociation>>>,
-) {
-    debug!("incoming session establishment request");
-    let req = SessionEstablishmentRequest::unmarshal(&buf[..len]).unwrap();
+    ctx: &PfcpContext,
+    req: &SessionEstablishmentRequest,
+    remote_addr: SocketAddr,
+) -> anyhow::Result<()> {
+    let rseid = match req.fseid.parse::<Fseid>() {
+        Ok(fs) => *fs.seid,
+        Err(_) => bail!("session establishment request missing SEID"),
+    };
+    debug!("Session ID: 0x{rseid:016x}");
 
-    let remote_nodeid = match req.node_id.parse::<NodeId>() {
+    let rnode_id = match req.node_id.parse::<NodeId>() {
         Ok(node_id) => match node_id {
             NodeId::IPv4(ipv4_addr) => ipv4_addr.to_string(),
             NodeId::IPv6(ipv6_addr) => ipv6_addr.to_string(),
             NodeId::FQDN(fqdn) => fqdn,
         },
         Err(_) => {
-            warn!("error parsing node_id");
-            todo!()
+            bail!("Error parsing remote node id");
         }
     };
-    debug!("remote node id is: {}", remote_nodeid);
 
-    let mut associations = associations.lock().await;
-    if !associations.contains_key(&remote_nodeid) {
-        warn!("session establishment request for non-existing association");
-        send_session_estab_error_response(socket, 0, &req, CauseValue::MandatoryIeMissing, addr)
-            .await;
-    }
-
-    let association = if let Some(association) = associations.get_mut(&remote_nodeid) {
-        association
+    let lseid: u64 = if let Some(lseid) = ctx
+        .with_association_mut(&rnode_id, |association| association.allocate_lseid())
+        .await
+    {
+        lseid
     } else {
         warn!("session establishment request for non-existing association");
-        send_session_estab_error_response(socket, 0, &req, CauseValue::MandatoryIeMissing, addr)
-            .await;
-        return;
-    };
-
-    let remote_fseid = match req.fseid.parse::<Fseid>() {
-        Ok(fseid) => fseid.seid.to_be(),
-        Err(_) => todo!(),
-    };
-    debug!("fseid of the remote node is: {}", remote_fseid);
-
-    let local_seid = association.local_seid();
-    let _session = PfcpSession::new(local_seid, remote_fseid);
-
-    // TODO: implement PSUCC, otherwise rollback on failure
-    let created_pdrs: Vec<Ie> = Vec::new();
-
-    for create_far in &req.create_fars {
-        let far = match create_far.parse::<CreateFar>() {
-            Ok(far) => far,
-            Err(_) => {
-                debug!("error extracting far info");
-                todo!()
-            }
-        };
-
-        let _far_id = far.far_id.value;
-    }
-
-    for create_qer in &req.create_urrs {
-        let _qer = match create_qer.parse::<CreateQer>() {
-            Ok(qer) => qer,
-            Err(_) => {
-                debug!("error extracting qer info");
-                todo!()
-            }
-        };
-    }
-
-    for create_urr in &req.create_urrs {
-        let _urr = match create_urr.parse::<CreateUrr>() {
-            Ok(urr) => urr,
-            Err(_) => {
-                debug!("error extracting qer info");
-                todo!()
-            }
-        };
-    }
-
-    for create_pdr in &req.create_pdrs {
-        let pdr = match create_pdr.parse::<CreatePdr>() {
-            Ok(pdr) => pdr,
-            Err(_) => {
-                todo!();
-            }
-        };
-        let pdr_id = pdr.pdr_id.value;
-        let mut sdr_info = SessionPdrInfo::new(PdrInfo::new(pdr_id));
-
-        // if let Some(value) = pdr.outer_header_removal {
-        //     sdr_info
-        //         .pdr_info
-        //         .set_outer_header_removal(value.description);
-        // }
-
-        if let Some(value) = pdr.far_id {
-            sdr_info.pdr_info.set_far_id(value.value);
-        }
-
-        if let Some(value) = pdr.qer_id {
-            // TODO: add a boundary check
-            sdr_info.pdr_info.set_qer_id(sdr_info.qer_idx, value.value);
-            sdr_info.qer_idx += 1;
-        }
-
-        if let Some(value) = pdr.urr_id {
-            // TODO: add boundary check
-            sdr_info.pdr_info.set_urr_id(sdr_info.qer_idx, value.id);
-            sdr_info.qer_idx += 1;
-        }
-
-        let pdi = pdr.pdi;
-
-        // TODO: implement SDF filter
-        // if let Some(sdf_filter) = pdi.sdf_filter {
-        // } else {
-        //     debug!("SDF filter is empty");
-        // }
-
-        if let Some(teid_pdi_id) = pdi.f_teid {
-            if teid_pdi_id.ch {}
-        }
-    }
-
-    let response = SessionEstablishmentResponseBuilder::new(
-        remote_fseid,
-        req.sequence(),
-        CauseValue::RequestAccepted,
-    )
-    .ies(created_pdrs)
-    .build()
-    .unwrap();
-
-    let bytes: Vec<u8> = response.marshal();
-    if let Ok(n) = socket.send_to(&bytes, addr).await {
-        debug!("sent {} bytes to {:?}", n, addr);
-    };
-}
-
-async fn send_session_estab_error_response(
-    socket: &UdpSocket,
-    seid: u64,
-    req: &SessionEstablishmentRequest,
-    cause: CauseValue,
-    addr: SocketAddr,
-) {
-    let response = SessionEstablishmentResponseBuilder::new(seid, req.sequence(), cause)
+        let response = SessionEstablishmentResponseBuilder::new(
+            0,
+            req.sequence(),
+            CauseValue::MandatoryIeMissing,
+        )
         .build()
         .unwrap();
-
-    let bytes: Vec<u8> = response.marshal();
-    if let Ok(n) = socket.send_to(&bytes, addr).await {
-        debug!("sent {} bytes to {:?}", n, addr);
+        return ctx.send_response(&response.marshal(), remote_addr).await;
     };
+
+    let mut session = PfcpSession::new(lseid, rseid);
+
+    let created_pdrs = create_rules(ctx, req, &mut session).await?;
+
+    let mut response_builder = SessionEstablishmentResponseBuilder::accepted(rseid, req.sequence())
+        .node_id(ctx.local_addr().ip())
+        .fseid(rseid, remote_addr.ip());
+
+    // add all created pdrs to the response
+    for created_pdr in created_pdrs {
+        response_builder = response_builder.created_pdr(created_pdr);
+    }
+
+    let res = match response_builder.build() {
+        Ok(r) => r,
+        Err(PfcpError::MissingMandatoryIe { ie_type, .. }) => {
+            error!("Missing mandatory ie {:?} - sending rejection", ie_type);
+            let rejection = SessionEstablishmentResponseBuilder::rejected(rseid, req.sequence())
+                .node_id(ctx.local_addr().ip())
+                .marshal()?;
+            ctx.send_to(&rejection, ctx.remote_addr()).await?;
+            return Ok(());
+        }
+        Err(e) => {
+            error!("Failed to build session establishment response: {e} - sending rejection");
+            let rejection = SessionEstablishmentResponseBuilder::rejected(rseid, req.sequence())
+                .node_id(ctx.local_addr().ip())
+                .marshal()?;
+            ctx.send_to(&rejection, ctx.remote_addr()).await?;
+            return Ok(());
+        }
+    };
+
+    ctx.with_association_mut(&rnode_id, |association| association.insert_session(session))
+        .await;
+    ctx.send_response(&res.marshal(), remote_addr).await
+}
+
+pub async fn handle_session_modification_request(
+    ctx: &PfcpContext,
+    req: &SessionModificationRequest,
+    remote_addr: SocketAddr,
+) -> anyhow::Result<()> {
+    let up_seid = match req.seid() {
+        Some(s) => *s,
+        None => {
+            eprintln!("ERROR: Session establishment request missing SEID - dropping message");
+            return Ok(());
+        }
+    };
+
+    let rnode_id = match req.node_id.as_ref().unwrap().parse::<NodeId>() {
+        Ok(node_id) => match node_id {
+            NodeId::IPv4(ipv4_addr) => ipv4_addr.to_string(),
+            NodeId::IPv6(ipv6_addr) => ipv6_addr.to_string(),
+            NodeId::FQDN(fqdn) => fqdn,
+        },
+        Err(_) => {
+            bail!("Error parsing remote node id");
+        }
+    };
+
+    // get a cloned version of a session, updated version'll be reinserted later
+    let session: PfcpSession = if let Some(session) = ctx
+        .with_association(&rnode_id, |association| association.get_session(up_seid))
+        .await
+    {
+        match session {
+            Some(session) => session,
+            None => {
+                warn!("session modification request for non-existing session");
+                let rejection = SessionModificationResponseBuilder::new(up_seid, req.sequence())
+                    .cause(CauseValue::SessionContextNotFound);
+                return ctx.send_response(&rejection.marshal(), remote_addr).await;
+            }
+        }
+    } else {
+        warn!("session modification request for non-existing association");
+        let response = SessionEstablishmentResponseBuilder::new(
+            0,
+            req.sequence(),
+            CauseValue::MandatoryIeMissing,
+        )
+        .build()
+        .unwrap();
+        return ctx.send_response(&response.marshal(), remote_addr).await;
+    };
+
+    Ok(())
 }

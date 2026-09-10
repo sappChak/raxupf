@@ -1,12 +1,12 @@
 pfcp:
-  local_addr: 127.0.0.1 # IP addr for listening
-  remote_addr: 127.0.0.1
-  node_id: 127.0.0.1 # External IP or FQDN can be reached
+  local_addr: 147.175.185.199 # IP addr for listening
+  remote_addr: 147.175.185.199
+  node_id: 147.175.185.199 # External IP or FQDN can be reached
   ret_timeout: 1s # retransmission timeout
   max_ret: 3 # the max number of retransmission
 
 gtpu:
-  addr: 127.0.0.1
+  addr: 147.175.185.199
 
 api:
   addr: "0.0.0.0"

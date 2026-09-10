@@ -1,6 +1,6 @@
 use bitflags::bitflags;
 
-use crate::{QER_MAP_SIZE, URR_MAP_SIZE, pdi::Pdi};
+use crate::{QER_MAP_SIZE, URR_MAP_SIZE, pdi::PdiPod};
 
 bitflags! {
     #[repr(transparent)]
@@ -33,7 +33,7 @@ pub struct PdrInfo {
     pdr_id: u16,
     precedence: u32,
     outer_header_removal: OuterHeaderRemovalFlags,
-    pdi: Pdi,
+    pdi: PdiPod,
     far_id: u32,
     qer_ids: [u32; QER_MAP_SIZE],
     urr_ids: [u32; URR_MAP_SIZE],
@@ -46,7 +46,7 @@ impl PdrInfo {
             pdr_id,
             precedence: 0,
             outer_header_removal: OuterHeaderRemovalFlags::empty(),
-            pdi: Pdi::new(),
+            pdi: PdiPod::new(),
             far_id: 0,
             qer_ids: [0; QER_MAP_SIZE],
             urr_ids: [0; URR_MAP_SIZE],
@@ -58,16 +58,36 @@ impl PdrInfo {
         self.allocated
     }
 
+    pub fn set_allocated(&mut self, allocated: bool) {
+        self.allocated = allocated;
+    }
+
+    pub fn pdr_id(&self) -> u16 {
+        self.pdr_id
+    }
+
+    pub fn set_pdr_id(&mut self, pdr_id: u16) {
+        self.pdr_id = pdr_id;
+    }
+
     pub fn precedence(&self) -> u32 {
         self.precedence
+    }
+
+    pub fn set_precedence(&mut self, precedence: u32) {
+        self.precedence = precedence;
     }
 
     pub fn ohr(&self) -> OuterHeaderRemovalFlags {
         self.outer_header_removal
     }
 
-    pub fn pdi(&self) -> Pdi {
+    pub fn pdi(&self) -> PdiPod {
         self.pdi
+    }
+
+    pub fn set_pdi(&mut self, pdi: PdiPod) {
+        self.pdi = pdi;
     }
 
     pub fn far_id(&self) -> u32 {
@@ -82,20 +102,20 @@ impl PdrInfo {
         &self.urr_ids
     }
 
-    pub fn set_ohr(&mut self, ohr: OuterHeaderRemovalFlags) {
-        self.outer_header_removal = ohr;
+    pub fn set_ohr(&mut self, ohr: u8) {
+        self.outer_header_removal = OuterHeaderRemovalFlags::from_bits_truncate(ohr);
     }
 
     pub fn set_far_id(&mut self, value: u32) {
         self.far_id = value;
     }
 
-    pub fn set_qer_id(&mut self, idx: usize, value: u32) {
-        self.qer_ids[idx] = value;
+    pub fn set_qer_id(&mut self, idx: usize, qer_id: u32) {
+        self.qer_ids[idx] = qer_id;
     }
 
-    pub fn set_urr_id(&mut self, idx: usize, value: u32) {
-        self.urr_ids[idx] = value;
+    pub fn set_urr_id(&mut self, idx: usize, urr_id: u32) {
+        self.urr_ids[idx] = urr_id;
     }
 }
 

@@ -1,18 +1,20 @@
 use config::builder::DefaultState;
 use serde_aux::field_attributes::deserialize_number_from_string;
+
 use crate::configuration::environment::Environment;
 
 #[derive(serde::Deserialize)]
 pub struct Configuration {
     pub pfcp: PfcpConfiguration,
-    // pub gtpu: GtpuConfiguration,
+    pub gtpu: GtpuConfiguration,
     pub api: ApiConfiguration,
     pub logger: LoggerConfiguration,
 }
 
 #[derive(serde::Deserialize)]
 pub struct PfcpConfiguration {
-    pub addr: String,
+    pub local_addr: String,
+    pub remote_addr: String,
     pub node_id: String,
     pub ret_timeout: String,
     #[serde(deserialize_with = "deserialize_number_from_string")]
@@ -21,7 +23,7 @@ pub struct PfcpConfiguration {
 
 #[derive(serde::Deserialize)]
 pub struct GtpuConfiguration {
-    pub interface: String,
+    pub addr: String,
 }
 
 #[derive(serde::Deserialize)]

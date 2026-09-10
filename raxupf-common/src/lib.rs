@@ -19,15 +19,19 @@ pub const URR_MAP_SIZE: usize = 10;
 pub const SDF_MAP_SIZE: usize = 10;
 pub const SESSION_MAP_SIZE: usize = 10;
 pub const PDR_MAP_SIZE: usize = 10;
+pub const MAX_QFI_NUM: usize = 5;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct SessionContext {
+pub struct SessionContextPod {
     ul_pdrs: [PdrInfo; PDR_MAP_SIZE], // sorted by precedence in ascending order
     dl_pdrs: [PdrInfo; PDR_MAP_SIZE],
 }
 
-impl SessionContext {
+impl SessionContextPod {
+    pub fn new(ul_pdrs: [PdrInfo; PDR_MAP_SIZE], dl_pdrs: [PdrInfo; PDR_MAP_SIZE]) -> Self {
+        Self { ul_pdrs, dl_pdrs }
+    }
     pub fn downlink_pdrs(&self) -> &[PdrInfo] {
         &self.dl_pdrs
     }
@@ -45,7 +49,7 @@ pub struct FibMacs {
 }
 
 #[cfg(feature = "user")]
-unsafe impl Pod for SessionContext {}
+unsafe impl Pod for SessionContextPod {}
 
 #[cfg(feature = "user")]
 unsafe impl Pod for FibMacs {}

@@ -128,7 +128,7 @@ pub fn encapsulate_into_gtpu(
     ctx: &XdpContext,
     src_addr: Ipv4Addr,
     dst_addr: Ipv4Addr,
-    tos: u8,
+    dscp: u8,
     qfi: u8,
     teid: u32,
 ) -> Result<u16, ()> {
@@ -151,7 +151,7 @@ pub fn encapsulate_into_gtpu(
     let iph: &mut Ipv4Hdr = unsafe { &mut *ptr_at_mut(ctx, EthHdr::LEN)? };
     // All L3+ outer headers + old IP header is the new IP header length
     let niph_len = (OUTER_HDRS_LEN_SUM as u16) + oiph_len;
-    initialize_ipv4_header(iph, src_addr, dst_addr, IpProto::Udp, tos, niph_len);
+    initialize_ipv4_header(iph, src_addr, dst_addr, IpProto::Udp, dscp, niph_len);
 
     let udph: &mut UdpHdr = unsafe { &mut *ptr_at_mut(ctx, EthHdr::LEN + Ipv4Hdr::LEN)? };
     // GTP-U header + old IP header is the UDP payload
@@ -228,12 +228,13 @@ fn initialize_ipv4_header(
     src_addr: Ipv4Addr,
     dst_addr: Ipv4Addr,
     proto: IpProto,
-    tos: u8,
+    dscp: u8,
     tot_len: u16,
 ) {
     let (version, ihl_in_bytes) = (4, 5 * 4);
     iph.set_vihl(version, ihl_in_bytes);
-    iph.tos = tos;
+    let ecn = 0; // TODO:
+    iph.set_tos(dscp, ecn);
     iph.set_tot_len(tot_len);
     iph.set_id(0);
     let (flags, offset) = (4, 0); // 0x4000 flag - DON'T fragment

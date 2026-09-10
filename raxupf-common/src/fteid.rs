@@ -2,12 +2,12 @@
 
 #[repr(C)]
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
-pub struct Fteid {
+pub struct FteidPod {
     teid: u32,
     ipv4_address: u32,
 }
 
-impl Fteid {
+impl FteidPod {
     pub fn new(teid: u32, ipv4_address: u32) -> Self {
         Self { teid, ipv4_address }
     }
@@ -22,4 +22,4 @@ impl Fteid {
 }
 
 #[cfg(feature = "user")]
-unsafe impl aya::Pod for Fteid {}
+unsafe impl aya::Pod for FteidPod {}

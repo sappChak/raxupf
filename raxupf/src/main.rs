@@ -2,7 +2,10 @@ use anyhow::Context as _;
 use aya::programs::{Xdp, XdpMode};
 use clap::Parser;
 use log::{debug, warn};
-use raxupf::{configuration::config::get_configuration, pfcp::PfcpServer};
+use raxupf::{
+    configuration::config::get_configuration,
+    pfcp::{PfcpContext, handle_messages},
+};
 
 #[derive(Debug, Parser)]
 struct Opt {
@@ -45,8 +48,8 @@ async fn main() -> anyhow::Result<()> {
     program.attach(&iface, XdpMode::default())
         .context("failed to attach the XDP program with default mode - try changing XdpMode::default() to XdpMode::Skb")?;
 
-    let pfcp_server = PfcpServer::new(&configuration);
-    pfcp_server.run().await?;
+    let ctx = PfcpContext::new(&mut ebpf, &configuration).await?;
+    handle_messages(ctx).await?;
 
     let ctrl_c = tokio::signal::ctrl_c();
     println!("Waiting for Ctrl-C...");

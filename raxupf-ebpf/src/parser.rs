@@ -20,7 +20,7 @@ pub const GTPU_HDR_LEN: usize = GtpuHdr::LEN + GTPU_EXT_LEN;
 pub const OUTER_HDRS_LEN_SUM: usize = Ipv4Hdr::LEN + UdpHdr::LEN + GTPU_HDR_LEN;
 
 use aya_log_ebpf::{error, info};
-use raxupf_common::fteid::Fteid;
+use raxupf_common::fteid::FteidPod;
 
 pub struct ParsedIpv4 {
     src_ipv4: Ipv4Addr,
@@ -66,7 +66,7 @@ pub struct ParsedInner {
 }
 
 pub struct ParsedGtpu {
-    pub local_fteid: Fteid,
+    pub local_fteid: FteidPod,
     pub message_type: GtpuMessageType,
     pub has_flags: bool,
     pub has_extension_header: bool,
@@ -308,7 +308,7 @@ pub fn parse_gtpu_header(ctx: &XdpContext, upf_ip: Ipv4Addr) -> Result<ParsedGtp
     };
 
     Ok(ParsedGtpu {
-        local_fteid: Fteid::new(gtpuh.teid(), upf_ip.to_bits()),
+        local_fteid: FteidPod::new(gtpuh.teid(), upf_ip.to_bits()),
         message_type,
         has_flags: gtpuh.has_flags(),
         has_extension_header: gtpuh.has_extension_header(),

@@ -16,7 +16,7 @@ use raxupf_ebpf::{
     gtpu::GtpuMessageType,
     gtpu_helpers::{encapsulate_into_gtpu, route_packet_l2},
     helpers::{ptr_at, ptr_at_mut},
-    maps::{INT_IPS, IP_TO_SESSION, SESSION_CONTEXT},
+    maps::{DOWNLINK_PDRS, INT_IPS},
     message_handlers::{
         handle_echo_request, handle_echo_response, handle_end_marker, handle_error_indication,
         handle_gpdu_message,
@@ -60,16 +60,14 @@ fn handle_packet(ctx: &XdpContext, packet_ctx: &PacketContext) -> Result<u32, ()
     let ue_ipv4 = packet_ctx.dst_ipv4();
     let upf_ipv4 = packet_ctx.upf_ipv4();
 
-    if let Some(session_id) = unsafe { IP_TO_SESSION.get(ue_ipv4.to_bits()) }
-        && let Some(session_ctx) = unsafe { SESSION_CONTEXT.get(session_id) }
-    {
+    if let Some(dl_pdrs) = unsafe { DOWNLINK_PDRS.get(ue_ipv4.to_bits()) } {
         let ParsedPdr {
             teid,
             qfi,
-            tos,
+            dscp: tos,
             remote_ipv4,
             action,
-        } = match process_pdrs(ctx, packet_ctx, session_ctx.downlink_pdrs()) {
+        } = match process_pdrs(ctx, packet_ctx, dl_pdrs) {
             Ok(ok) => ok,
             Err(err) => return Ok(err),
         };

@@ -3,8 +3,8 @@ use core::net::Ipv4Addr;
 use aya_ebpf::{bindings::xdp_action, programs::XdpContext};
 use aya_log_ebpf::{debug, warn};
 use raxupf_common::{
-    far::{FarAction, OuterHeaderCreationFlags},
-    pdi::{Pdi, PdiMask, SourceInterface},
+    far::{FarAction, OhcFlags},
+    pdi::{PdiMask, PdiPod, SourceInterface},
     pdr::{OuterHeaderRemovalFlags, PdrInfo},
 };
 
@@ -22,13 +22,13 @@ pub enum PdrAction {
 pub struct ParsedPdr {
     pub teid: u32,
     pub qfi: u8,
-    pub tos: u8,
+    pub dscp: u8,
     pub remote_ipv4: Ipv4Addr,
     pub action: PdrAction,
 }
 
 #[inline(always)]
-fn pdi_matches(ctx: &XdpContext, pdi: &Pdi, pkt: &PacketContext) -> bool {
+fn pdi_matches(ctx: &XdpContext, pdi: &PdiPod, pkt: &PacketContext) -> bool {
     if let Some(inner) = pkt.inner() {
         let ue_ip = match pdi.source_interface() {
             SourceInterface::Access => {
@@ -91,22 +91,22 @@ pub fn process_pdrs(
             let pdi = pdr.pdi();
 
             if !pdi_matches(ctx, &pdi, packet_ctx) {
-                return Err(xdp_action::XDP_DROP);
+                continue;
             }
 
             let far_id = pdr.far_id();
             let ohr = pdr.ohr();
-            let (teid, tos, remote_ipv4, ohc) = match unsafe { FAR_MAP.get(far_id) } {
-                Some(far) => match far.action() {
-                    FarAction::FORW => {
+            let far = match unsafe { FAR_MAP.get(far_id) } {
+                Some(far) => {
+                    let action = far.action();
+                    if action == FarAction::FORW {
                         debug!(ctx, "forward action");
-                        (far.teid(), far.tos(), far.remote_ip(), far.ohc())
-                    }
-                    _ => {
+                        far
+                    } else {
                         warn!(ctx, "unsupported FAR action, dropping...");
                         return Err(xdp_action::XDP_DROP);
                     }
-                },
+                }
                 None => return Err(xdp_action::XDP_DROP),
             };
 
@@ -138,12 +138,13 @@ pub fn process_pdrs(
                 }
             }
 
+            // TODO: check whether FAR destination interface matches these decisions
             let action: PdrAction = if ohr.contains(OuterHeaderRemovalFlags::GTPU_UDP_IPV4)
-                && ohc.contains(OuterHeaderCreationFlags::GTPU_UDP_IPV4)
+                && far.ohc().contains(OhcFlags::GTPU_UDP_IPV4)
             {
                 // this is N9
                 PdrAction::Forward
-            } else if ohc.contains(OuterHeaderCreationFlags::GTPU_UDP_IPV4) {
+            } else if far.ohc().contains(OhcFlags::GTPU_UDP_IPV4) {
                 // this is N6
                 PdrAction::Create
             } else {
@@ -152,10 +153,10 @@ pub fn process_pdrs(
             };
 
             return Ok(ParsedPdr {
-                teid,
+                teid: far.teid(),
                 qfi,
-                tos,
-                remote_ipv4: Ipv4Addr::from(remote_ipv4),
+                dscp: far.dscp(),
+                remote_ipv4: Ipv4Addr::from(far.remote_ipv4()),
                 action,
             });
         }

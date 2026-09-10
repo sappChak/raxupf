@@ -3,18 +3,16 @@ use aya_ebpf::{
     maps::{Array, HashMap},
 };
 use raxupf_common::{
-    FAR_MAP_SIZE, QER_MAP_SIZE, SDF_MAP_SIZE, SESSION_MAP_SIZE, SessionContext, URR_MAP_SIZE,
-    far::FarInfo, qer::QerInfo, sdf::SdfFilter, urr::UrrInfo,
+    FAR_MAP_SIZE, PDR_MAP_SIZE, QER_MAP_SIZE, SDF_MAP_SIZE, URR_MAP_SIZE, far::FarInfo,
+    pdr::PdrInfo, qer::QerInfo, sdf::SdfFilter, urr::UrrInfo,
 };
 
-#[map(name = "TEID_TO_SESSION")]
-pub static TEID_TO_SESSION: HashMap<u32, u64> =
-    HashMap::with_max_entries(SESSION_MAP_SIZE as u32, 0);
-#[map(name = "IP_TO_SESSION")]
-pub static IP_TO_SESSION: HashMap<u32, u64> = HashMap::with_max_entries(SESSION_MAP_SIZE as u32, 0);
-#[map(name = "SESSION_CONTEXT")]
-pub static SESSION_CONTEXT: HashMap<u64, SessionContext> =
-    HashMap::with_max_entries(SESSION_MAP_SIZE as u32, 0);
+#[map(name = "UPLINK_PDRS")]
+pub static UPLINK_PDRS: HashMap<u32, [PdrInfo; PDR_MAP_SIZE]> =
+    HashMap::with_max_entries(PDR_MAP_SIZE as u32, 0);
+#[map(name = "DOWNLINK_PDRS")]
+pub static DOWNLINK_PDRS: HashMap<u32, [PdrInfo; PDR_MAP_SIZE]> =
+    HashMap::with_max_entries(PDR_MAP_SIZE as u32, 0);
 
 #[map(name = "FAR_MAP")]
 pub static FAR_MAP: HashMap<u32, FarInfo> = HashMap::with_max_entries(FAR_MAP_SIZE as u32, 0);

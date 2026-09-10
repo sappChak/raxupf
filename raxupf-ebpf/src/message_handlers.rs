@@ -4,7 +4,7 @@ use network_types::ip::IpProto;
 
 use crate::{
     gtpu_helpers::{decapsulate_gtpu, route_packet_l2, update_gtpu},
-    maps::{SESSION_CONTEXT, TEID_TO_SESSION},
+    maps::UPLINK_PDRS,
     parser::PacketContext,
     pdr::{ParsedPdr, PdrAction, process_pdrs},
 };
@@ -42,16 +42,14 @@ pub fn handle_gpdu_message(ctx: &XdpContext, pkt_ctx: &PacketContext) -> Result<
     let ext_tot_len = inner.psc.ext_tot_len();
     let upf_ip = pkt_ctx.upf_ipv4();
 
-    if let Some(session_id) = unsafe { TEID_TO_SESSION.get(inner.gtpu.local_fteid.teid()) }
-        && let Some(session_ctx) = unsafe { SESSION_CONTEXT.get(session_id) }
-    {
+    if let Some(ul_pdrs) = unsafe { UPLINK_PDRS.get(inner.gtpu.local_fteid.teid()) } {
         let ParsedPdr {
             teid,
             qfi,
-            tos,
+            dscp,
             remote_ipv4,
             action,
-        } = match process_pdrs(ctx, pkt_ctx, session_ctx.uplink_pdrs()) {
+        } = match process_pdrs(ctx, pkt_ctx, ul_pdrs) {
             Ok(ok) => ok,
             Err(err) => return Ok(err),
         };

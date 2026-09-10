@@ -1,14 +1,15 @@
 use bitflags::bitflags;
 
-use crate::{SDF_MAP_SIZE, fteid::Fteid};
+use crate::{MAX_QFI_NUM, SDF_MAP_SIZE, fteid::FteidPod};
 
 bitflags! {
     #[repr(transparent)]
     #[derive(Clone, Copy)]
     pub struct PdiMask: u16 {
-        const F_TEID           = 1 << 0;
-        const UE_IPV4          = 1 << 1;
-        const SDF_FILTER        = 1 << 2;
+        const F_TEID = 1 << 0;
+        const UE_IPV4 = 1 << 1;
+        const SDF_FILTER = 1 << 2;
+        const QFI = 1 << 3;
     }
 }
 
@@ -36,27 +37,29 @@ impl From<u8> for SourceInterface {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct Pdi {
+pub struct PdiPod {
     pdi_mask: PdiMask,
-    source_interface: SourceInterface, // source interface is not optional
-    fteid: Fteid,
+    source_interface: u8,
+    fteid: FteidPod,
     ue_ipv4_address: u32,
+    qfis: [u8; MAX_QFI_NUM],
     sdf_ids: [u32; SDF_MAP_SIZE],
 }
 
-impl Default for Pdi {
+impl Default for PdiPod {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Pdi {
+impl PdiPod {
     pub fn new() -> Self {
         Self {
-            pdi_mask: PdiMask::F_TEID,
-            source_interface: SourceInterface::Unknown,
-            fteid: Fteid::default(),
+            pdi_mask: PdiMask::empty(),
+            source_interface: 0,
+            fteid: FteidPod::default(),
             ue_ipv4_address: 0,
+            qfis: [0; MAX_QFI_NUM],
             sdf_ids: [0; SDF_MAP_SIZE],
         }
     }
@@ -65,16 +68,43 @@ impl Pdi {
         self.pdi_mask
     }
 
-    pub fn source_interface(&self) -> SourceInterface {
-        self.source_interface
+    pub fn set_flag(&mut self, flag: PdiMask) {
+        self.pdi_mask |= flag;
     }
 
-    pub fn fteid(&self) -> Fteid {
+    pub fn source_interface(&self) -> SourceInterface {
+        SourceInterface::from(self.source_interface)
+    }
+
+    pub fn set_source_interface(&mut self, source_interface: u8) {
+        self.source_interface = source_interface;
+    }
+
+    pub fn fteid(&self) -> FteidPod {
         self.fteid
+    }
+
+    pub fn set_fteid(&mut self, fteid: FteidPod) {
+        self.fteid = fteid;
+        self.set_flag(PdiMask::F_TEID);
     }
 
     pub fn ue_ipv4_address(&self) -> u32 {
         self.ue_ipv4_address
+    }
+
+    pub fn set_ue_ipv4_address(&mut self, ue_ipv4_address: u32) {
+        self.ue_ipv4_address = ue_ipv4_address;
+        self.set_flag(PdiMask::UE_IPV4);
+    }
+
+    pub fn qfis(&self) -> &[u8] {
+        &self.qfis
+    }
+
+    pub fn set_qfi(&mut self, idx: usize, qfi: u8) {
+        self.qfis[idx] = qfi;
+        self.set_flag(PdiMask::QFI);
     }
 
     pub fn sdf_ids(&self) -> &[u32] {
@@ -83,4 +113,4 @@ impl Pdi {
 }
 
 #[cfg(feature = "user")]
-unsafe impl aya::Pod for Pdi {}
+unsafe impl aya::Pod for PdiPod {}
