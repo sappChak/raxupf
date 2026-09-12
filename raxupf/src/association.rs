@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    net::{Ipv4Addr, Ipv6Addr, SocketAddr},
-};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use log::{debug, warn};
 use rs_pfcp::{
@@ -12,13 +9,12 @@ use rs_pfcp::{
     },
 };
 
-use crate::{pfcp::PfcpContext, session::PfcpSession};
+use crate::pfcp::PfcpContext;
 
 pub struct PfcpAssociation {
     lnode_id: String,
     laddr: std::net::IpAddr,
     lseid: u64,
-    sessions: HashMap<u64, PfcpSession>, // key: lseid
 }
 
 impl PfcpAssociation {
@@ -26,7 +22,6 @@ impl PfcpAssociation {
         Self {
             lnode_id,
             laddr,
-            sessions: HashMap::default(),
             lseid: 1,
         }
     }
@@ -39,17 +34,9 @@ impl PfcpAssociation {
         self.laddr
     }
 
-    pub fn allocate_lseid(&mut self) -> u64 {
+    pub fn allocate_up_seid(&mut self) -> u64 {
         self.lseid += 1;
         self.lseid
-    }
-
-    pub fn get_session(&self, key: u64) -> Option<PfcpSession> {
-        self.sessions.get(&key).cloned()
-    }
-
-    pub fn insert_session(&mut self, session: PfcpSession) {
-        self.sessions.insert(self.lseid, session);
     }
 }
 
@@ -83,7 +70,7 @@ pub async fn handle_association_setup_request(
         };
 
     // shall store the Node ID of the CP function as the identifier of the PFCP association
-    let association = PfcpAssociation::new(rnode_id.clone(), ctx.remote_addr().ip());
+    let association = PfcpAssociation::new(rnode_id.clone(), ctx.cp_addr().ip());
     let _ = ctx.insert_association(&rnode_id, association).await;
 
     let node_id = ctx.node_id();

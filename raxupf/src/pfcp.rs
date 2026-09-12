@@ -27,18 +27,21 @@ use crate::{
     configuration::config::Configuration,
     heartbeat::handle_hearbeat_request,
     resource_manager::ResourceManager,
-    session::{handle_session_establishment_request, handle_session_modification_request},
+    session::{
+        PfcpSession, handle_session_establishment_request, handle_session_modification_request,
+    },
 };
 
 const PFCP_PORT: u16 = 8805; // 3GPP TS 29.244 Release 17, clause 4.2.2
 
 pub struct PfcpContext {
     socket: UdpSocket,
-    local_addr: SocketAddr,
-    remote_addr: SocketAddr,
+    up_addr: SocketAddr,
+    cp_addr: SocketAddr,
     node_id: String,
     recovery_ts: SystemTime,
     associations: RwLock<HashMap<String, PfcpAssociation>>, // key: remote node_id
+    sessions: RwLock<HashMap<u64, PfcpSession>>,            // key: allocated UP TEID
     maps: BpfMaps,
     gtp_addr_v4: Ipv4Addr,
     resource_manager: Mutex<ResourceManager>,
@@ -53,11 +56,12 @@ impl PfcpContext {
 
         Ok(Arc::new(Self {
             socket: UdpSocket::bind(local_addr).await?,
-            local_addr,
-            remote_addr,
+            up_addr: local_addr,
+            cp_addr: remote_addr,
             node_id: configuration.pfcp.node_id.clone(),
             recovery_ts: SystemTime::now(),
             associations: RwLock::new(HashMap::new()),
+            sessions: RwLock::new(HashMap::new()),
             maps: BpfMaps::new(ebpf)?,
             gtp_addr_v4: configuration.gtpu.addr.parse::<Ipv4Addr>()?,
             resource_manager: Mutex::new(ResourceManager::new()),
@@ -68,12 +72,12 @@ impl PfcpContext {
         &self.socket
     }
 
-    pub fn local_addr(&self) -> SocketAddr {
-        self.local_addr
+    pub fn up_addr(&self) -> SocketAddr {
+        self.up_addr
     }
 
-    pub fn remote_addr(&self) -> SocketAddr {
-        self.remote_addr
+    pub fn cp_addr(&self) -> SocketAddr {
+        self.cp_addr
     }
 
     pub fn gtp_addr_v4(&self) -> Ipv4Addr {
@@ -117,6 +121,16 @@ impl PfcpContext {
             .write()
             .await
             .insert(rnode_id.to_string(), association)
+    }
+
+    pub async fn get_session(&self, key: u64) -> Option<PfcpSession> {
+        let sessions = self.sessions.read().await;
+        sessions.get(&key).cloned()
+    }
+
+    pub async fn insert_session(&self, lseid: u64, session: PfcpSession) {
+        let mut sessions = self.sessions.write().await;
+        sessions.insert(lseid, session);
     }
 
     pub async fn send_to(&self, buf: &[u8], addr: SocketAddr) -> Result<usize, std::io::Error> {
