@@ -27,6 +27,7 @@ serde-aux = "4.7.0"
 serde = "1.0.228"
 config = "0.15"
 rs-pfcp = "0.5.0"
+winnow = "1"
 
 [build-dependencies]
 anyhow = { workspace = true }

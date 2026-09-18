@@ -9,6 +9,7 @@ pub mod pfcp;
 pub mod session;
 pub mod resource_manager;
 pub mod helpers;
+pub mod iprule_parser;
 
 type AyaHashMap<K, V> = aya::maps::HashMap<aya::maps::MapData, K, V>;
 type AyaArray<V> = aya::maps::Array<aya::maps::MapData, V>;

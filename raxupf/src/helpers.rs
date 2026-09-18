@@ -14,7 +14,7 @@ use rs_pfcp::ie::{
     update_pdr::UpdatePdr, update_qer::UpdateQer, update_urr::UpdateUrr,
 };
 
-use crate::{pfcp::PfcpContext, session::PfcpSession};
+use crate::{iprule_parser::parse_sdf_filter, pfcp::PfcpContext, session::PfcpSession};
 
 fn ohc_description_to_flags(desc: OuterHeaderCreationFlags) -> OhcFlags {
     let mut flags = OhcFlags::empty();
@@ -188,14 +188,15 @@ pub async fn create_pdr_rule(
         if idx < MAX_QFI_NUM {
             pdi_pod.set_qfi(idx, qfi.value());
         } else {
-            error!("Exceeded maximum number of qfis in a PDI");
+            error!("Exceeded maximum number of QFIs in a PDI");
             break;
         }
     }
 
-    for sdf in received_pdr.pdi.sdf_filters {
-        // TODO: parse sdf filter
-        debug!("SDF flow description in PDR: {}", sdf.flow_description);
+    for (idx, sdf) in received_pdr.pdi.sdf_filters.iter().enumerate() {
+        let mut sdf_pod = parse_sdf_filter(sdf)?;
+        sdf_pod.set_allocated(true);
+        pdi_pod.set_sdf(idx, sdf_pod);
     }
 
     pdr_info.set_pdi(pdi_pod);
@@ -221,10 +222,7 @@ pub async fn create_pdr_rule(
             .ue_ip_address(ue_ip_address),
         (Some(f_teid), None) => CreatedPdr::new(pdr_id).f_teid(f_teid),
         (None, Some(ue_ip)) => CreatedPdr::new(pdr_id).ue_ip_address(ue_ip),
-        (None, None) => {
-            debug!("Neither F-TEID nor UE IP was allocated");
-            CreatedPdr::new(pdr_id)
-        }
+        (None, None) => CreatedPdr::new(pdr_id),
     };
 
     if pdr_info.pdi().pdi_mask().contains(PdiMask::UE_IPV4) {

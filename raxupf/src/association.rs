@@ -1,6 +1,7 @@
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
-use log::{debug, warn};
+use anyhow::bail;
+use log::debug;
 use rs_pfcp::{
     ie::{cause::CauseValue, node_id::NodeId, recovery_time_stamp::RecoveryTimeStamp},
     message::{
@@ -54,8 +55,7 @@ pub async fn handle_association_setup_request(
             NodeId::FQDN(fqdn) => fqdn,
         },
         Err(_) => {
-            warn!("error parsing node_id");
-            todo!()
+            bail!("Error parsing remote node id");
         }
     };
     debug!("remote node id is: {}", rnode_id);
@@ -64,8 +64,7 @@ pub async fn handle_association_setup_request(
         match req.recovery_time_stamp.parse::<RecoveryTimeStamp>() {
             Ok(rec_ts) => rec_ts.timestamp,
             Err(_) => {
-                warn!("error parsing recovery timestamp");
-                todo!()
+                bail!("Error parsing recovery timestamp");
             }
         };
 

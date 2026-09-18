@@ -1,6 +1,6 @@
 use bitflags::bitflags;
 
-use crate::{MAX_QFI_NUM, SDF_MAP_SIZE, fteid::FteidPod};
+use crate::{MAX_QFI_NUM, SDF_MAP_SIZE, fteid::FteidPod, sdf::SdfFilterPod};
 
 bitflags! {
     #[repr(transparent)]
@@ -43,7 +43,7 @@ pub struct PdiPod {
     fteid: FteidPod,
     ue_ipv4_address: u32,
     qfis: [u8; MAX_QFI_NUM],
-    sdf_ids: [u32; SDF_MAP_SIZE],
+    sdfs: [SdfFilterPod; SDF_MAP_SIZE],
 }
 
 impl Default for PdiPod {
@@ -60,7 +60,7 @@ impl PdiPod {
             fteid: FteidPod::default(),
             ue_ipv4_address: 0,
             qfis: [0; MAX_QFI_NUM],
-            sdf_ids: [0; SDF_MAP_SIZE],
+            sdfs: [SdfFilterPod::default(); SDF_MAP_SIZE],
         }
     }
 
@@ -107,8 +107,12 @@ impl PdiPod {
         self.set_flag(PdiMask::QFI);
     }
 
-    pub fn sdf_ids(&self) -> &[u32] {
-        &self.sdf_ids
+    pub fn sdfs(&self) -> &[SdfFilterPod] {
+        &self.sdfs
+    }
+
+    pub fn set_sdf(&mut self, idx: usize, sdf: SdfFilterPod) {
+        self.sdfs[idx] = sdf;
     }
 }
 

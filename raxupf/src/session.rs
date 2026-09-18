@@ -51,6 +51,12 @@ impl PfcpSession {
         }
     }
 
+    pub fn compile(&self) -> SessionContextPod {
+        let ul_pdrs = todo!();
+        let dl_pdrs = todo!();
+        SessionContextPod::new(ul_pdrs, dl_pdrs)
+    }
+
     pub fn cp_seid(&self) -> u64 {
         self.cp_seid
     }
@@ -65,12 +71,6 @@ impl PfcpSession {
 
     pub fn insert_far(&mut self, id: u32, info: FarInfo) {
         self.fars.insert(id, info);
-    }
-
-    pub fn compile(&self) -> SessionContextPod {
-        let ul_pdrs = todo!();
-        let dl_pdrs = todo!();
-        SessionContextPod::new(ul_pdrs, dl_pdrs)
     }
 }
 
@@ -230,7 +230,7 @@ pub async fn handle_session_modification_request(
     req: &SessionModificationRequest,
     cp_addr: SocketAddr,
 ) -> anyhow::Result<()> {
-    // SMF sends seid that was previously allocated by UPF
+    // SMF sends SEID that was previously allocated by UPF
     let up_seid = match req.seid() {
         Some(s) => *s,
         None => {
@@ -255,7 +255,6 @@ pub async fn handle_session_modification_request(
     if let Some(remove_fars) = &req.remove_fars {
         debug!("Processing {} RemoveFar IEs", remove_fars.len());
         for (idx, remove_far) in remove_fars.iter().enumerate() {
-            // RemoveFar is just a wrapper
             match remove_far.parse::<FarId>() {
                 Ok(received_far_id) => {
                     debug!(
@@ -273,7 +272,6 @@ pub async fn handle_session_modification_request(
     if let Some(remove_qers) = &req.remove_qers {
         debug!("Processing {} RemoveQER IEs", remove_qers.len());
         for (idx, remove_qer) in remove_qers.iter().enumerate() {
-            // RemoveQer is just a wrapper
             match remove_qer.parse::<QerId>() {
                 Ok(received_qer_id) => {
                     debug!(
@@ -291,7 +289,6 @@ pub async fn handle_session_modification_request(
     if let Some(remove_urrs) = &req.remove_urrs {
         debug!("Processing {} RemoveURR IEs", remove_urrs.len());
         for (idx, remove_urr) in remove_urrs.iter().enumerate() {
-            // RemoveUrr is just a wrapper
             match remove_urr.parse::<UrrId>() {
                 Ok(received_urr_id) => {
                     debug!("    RemoveUrr {}: URR ID: {}", idx + 1, received_urr_id.id);
@@ -305,7 +302,6 @@ pub async fn handle_session_modification_request(
     if let Some(remove_pdrs) = &req.remove_pdrs {
         debug!("Processing {} RemovePDR IEs", remove_pdrs.len());
         for (idx, remove_pdr) in remove_pdrs.iter().enumerate() {
-            // RemovePdr is just a wrapper
             match remove_pdr.parse::<PdrId>() {
                 Ok(received_pdr_id) => {
                     debug!(

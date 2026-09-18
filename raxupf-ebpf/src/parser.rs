@@ -123,10 +123,7 @@ impl PacketContext {
 
     pub fn parse_inner(&mut self, ctx: &XdpContext) -> Result<(), u32> {
         // TODO: fix horrible return types and their handling
-        let parsed_gtpu = match parse_gtpu_header(ctx, self.upf_ipv4) {
-            Ok(gtpu) => gtpu,
-            Err(err) => return Err(err),
-        };
+        let parsed_gtpu = parse_gtpu_header(ctx, self.upf_ipv4)?;
 
         let parsed_psc = match parse_pdu_session_container(ctx) {
             Ok(psc) => psc,
