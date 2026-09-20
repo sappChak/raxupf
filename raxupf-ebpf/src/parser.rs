@@ -1,8 +1,8 @@
-use core::net::Ipv4Addr;
+use core::net::{Ipv4Addr, Ipv6Addr};
 
 use aya_ebpf::{bindings::xdp_action, programs::XdpContext};
 use network_types::{
-    eth::EthHdr,
+    eth::{EthHdr, EtherType::Ipv6},
     ip::{IpProto, Ipv4Hdr},
     tcp::TcpHdr,
     udp::UdpHdr,
@@ -275,7 +275,7 @@ pub fn parse_pdu_session_container(ctx: &XdpContext) -> Result<ParsedPsc, ()> {
 }
 
 #[inline(always)]
-pub fn parse_gtpu_header(ctx: &XdpContext, upf_ip: Ipv4Addr) -> Result<ParsedGtpu, u32> {
+pub fn parse_gtpu_header(ctx: &XdpContext, upf_ipv4: Ipv4Addr) -> Result<ParsedGtpu, u32> {
     let gtpuh: &GtpuHdr = match ptr_at_mut(ctx, EthHdr::LEN + Ipv4Hdr::LEN + UdpHdr::LEN) {
         Ok(ptr) => unsafe { &*ptr },
         Err(_) => {
@@ -304,8 +304,16 @@ pub fn parse_gtpu_header(ctx: &XdpContext, upf_ip: Ipv4Addr) -> Result<ParsedGtp
         }
     };
 
+    // TODO:
+    let upf_ipv6 = Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0);
     Ok(ParsedGtpu {
-        local_fteid: FteidPod::new(gtpuh.teid(), upf_ip.to_bits()),
+        local_fteid: FteidPod::new(
+            gtpuh.teid(),
+            upf_ipv4.to_bits(),
+            upf_ipv6.octets(),
+            true,
+            false,
+        ),
         message_type,
         has_flags: gtpuh.has_flags(),
         has_extension_header: gtpuh.has_extension_header(),

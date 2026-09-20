@@ -14,7 +14,7 @@ bitflags! {
 
 bitflags! {
     #[repr(transparent)]
-    #[derive(Clone, Copy)]
+    #[derive(Default, Clone, Copy)]
     pub struct OuterHeaderRemovalFlags: u8 {
         const GTPU_UDP_IPV4 = 1 << 0;
         const GTPU_UDP_IPV6 = 1 << 1;
@@ -28,7 +28,7 @@ bitflags! {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Default, Clone, Copy)]
 pub struct PdrInfo {
     pdr_id: u16,
     precedence: u32,

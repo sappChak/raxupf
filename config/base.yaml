@@ -6,7 +6,9 @@ pfcp:
   max_ret: 3 # the max number of retransmission
 
 gtpu:
-  addr: 127.0.0.1
+  mode: generic
+  iface: lo
+  ipv4_addr: 127.0.0.1
 
 api:
   addr: "0.0.0.0"

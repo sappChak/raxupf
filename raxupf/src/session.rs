@@ -1,8 +1,14 @@
-use std::{collections::HashMap, net::SocketAddr};
+use std::{
+    collections::HashMap,
+    net::{Ipv4Addr, Ipv6Addr, SocketAddr},
+};
 
 use anyhow::bail;
 use log::{debug, error, warn};
-use raxupf_common::{SessionContextPod, far::FarInfo, pdr::PdrInfo, qer::QerInfo, urr::UrrInfo};
+use raxupf_common::{
+    FAR_MAP_SIZE, PDR_MAP_SIZE, QER_MAP_SIZE, URR_MAP_SIZE, far::FarInfo, pdr::PdrInfo,
+    qer::QerInfo, urr::UrrInfo,
+};
 use rs_pfcp::{
     error::PfcpError,
     ie::{
@@ -19,23 +25,27 @@ use rs_pfcp::{
 };
 
 use crate::{
-    helpers::{
-        create_far_rule, create_pdr_rule, create_qer_rule, create_urr_rule, remove_far_rule,
-        remove_pdr_rule, remove_qer_rule, remove_urr_rule, update_far_rule, update_pdr_rule,
-        update_qer_rule, update_urr_rule,
-    },
     pfcp::PfcpContext,
+    rules::{
+        far::{create_far_rule, remove_far_rule, update_far_rule},
+        pdr::{create_pdr_rule, remove_pdr_rule, update_pdr_rule},
+        qer::{create_qer_rule, remove_qer_rule, update_qer_rule},
+        urr::{create_urr_rule, remove_urr_rule, update_urr_rule},
+    },
 };
 
 #[derive(Clone)]
 pub struct PfcpSession {
     cp_seid: u64,
-    remote_nodeid: String, // key to access entry in ctx.associations
+    ue_ipv4: Option<Ipv4Addr>,          // key into eBPF DL PDRs
+    ue_ipv6: Option<Ipv6Addr>,          // key into eBPF DL PDRs
+    teid: Option<u32>,                  // key into eBPF UL PDRs
+    remote_nodeid: String,              // key to access entry in ctx.associations
     pub ul_pdrs: HashMap<u16, PdrInfo>, // key: pdr id
     pub dl_pdrs: HashMap<u16, PdrInfo>, // key: pdr id
-    pub fars: HashMap<u32, FarInfo>, // key: far id
-    qers: HashMap<u32, QerInfo>,
-    urrs: HashMap<u32, UrrInfo>,
+    pub fars: HashMap<u32, FarInfo>,    // key: far id
+    pub qers: HashMap<u32, QerInfo>,
+    pub urrs: HashMap<u32, UrrInfo>,
 }
 
 impl PfcpSession {
@@ -48,29 +58,78 @@ impl PfcpSession {
             fars: HashMap::new(),
             qers: HashMap::new(),
             urrs: HashMap::new(),
+            ue_ipv4: None,
+            ue_ipv6: None,
+            teid: None,
         }
     }
 
-    pub fn compile(&self) -> SessionContextPod {
-        let ul_pdrs = todo!();
-        let dl_pdrs = todo!();
-        SessionContextPod::new(ul_pdrs, dl_pdrs)
+    pub fn ue_ipv4(&self) -> Option<Ipv4Addr> {
+        self.ue_ipv4
+    }
+
+    pub fn set_ue_ipv4(&mut self, ip: Ipv4Addr) {
+        self.ue_ipv4 = Some(ip);
+    }
+
+    pub fn ue_ipv6(&self) -> Option<Ipv6Addr> {
+        self.ue_ipv6
+    }
+
+    pub fn set_ue_ipv6(&mut self, ip: Ipv6Addr) {
+        self.ue_ipv6 = Some(ip);
+    }
+
+    pub fn teid(&self) -> Option<u32> {
+        self.teid
+    }
+
+    pub fn set_teid(&mut self, teid: u32) {
+        self.teid = Some(teid);
     }
 
     pub fn cp_seid(&self) -> u64 {
         self.cp_seid
     }
 
-    pub fn insert_ul_pdr(&mut self, id: u16, info: PdrInfo) {
+    pub fn insert_ul_pdr(&mut self, id: u16, info: PdrInfo) -> anyhow::Result<()> {
+        if self.ul_pdrs.len() >= PDR_MAP_SIZE {
+            bail!("Maximum number of UL PDRs reached");
+        }
         self.ul_pdrs.insert(id, info);
+        Ok(())
     }
 
-    pub fn insert_dl_pdr(&mut self, id: u16, info: PdrInfo) {
+    pub fn insert_dl_pdr(&mut self, id: u16, info: PdrInfo) -> anyhow::Result<()> {
+        if self.dl_pdrs.len() >= PDR_MAP_SIZE {
+            bail!("Maximum number of DL PDRs reached");
+        }
         self.dl_pdrs.insert(id, info);
+        Ok(())
     }
 
-    pub fn insert_far(&mut self, id: u32, info: FarInfo) {
+    pub fn insert_far(&mut self, id: u32, info: FarInfo) -> anyhow::Result<()> {
+        if self.fars.len() >= FAR_MAP_SIZE {
+            bail!("Maximum number of FARs reached");
+        }
         self.fars.insert(id, info);
+        Ok(())
+    }
+
+    pub fn insert_qer(&mut self, id: u32, info: QerInfo) -> anyhow::Result<()> {
+        if self.qers.len() >= QER_MAP_SIZE {
+            bail!("Maximum number of QERs reached");
+        }
+        self.qers.insert(id, info);
+        Ok(())
+    }
+
+    pub fn insert_urr(&mut self, id: u32, info: UrrInfo) -> anyhow::Result<()> {
+        if self.urrs.len() >= URR_MAP_SIZE {
+            bail!("Maximum number of URRs reached");
+        }
+        self.urrs.insert(id, info);
+        Ok(())
     }
 }
 
@@ -83,7 +142,6 @@ pub async fn handle_session_establishment_request(
         Ok(fs) => *fs.seid,
         Err(_) => bail!("session establishment request missing SEID"),
     };
-    debug!("Session ID: 0x{cp_seid:016x}");
 
     let cp_nodeid = match req.node_id.parse::<NodeId>() {
         Ok(node_id) => match node_id {
@@ -95,7 +153,6 @@ pub async fn handle_session_establishment_request(
             bail!("Error parsing remote node id");
         }
     };
-    debug!("Remote node id: {cp_nodeid}");
 
     let up_seid: u64 = if let Some(up_seid) = ctx
         .with_association_mut(&cp_nodeid, |association| association.allocate_up_seid())
@@ -107,11 +164,11 @@ pub async fn handle_session_establishment_request(
         let response = SessionEstablishmentResponseBuilder::new(
             0,
             req.sequence(),
-            CauseValue::MandatoryIeMissing,
+            CauseValue::NoEstablishedPfcpAssociation,
         )
-        .build()
-        .unwrap();
-        return ctx.send_response(&response.marshal(), cp_addr).await;
+        .node_id(ctx.local_pfcp_addr().ip())
+        .fseid_ie(Ie::new(rs_pfcp::ie::IeType::Fseid, vec![])); // Fseid should be None for rejection responses, PR to rs-pfcp
+        return ctx.send_response(&response.marshal()?, cp_addr).await;
     };
 
     let mut session = PfcpSession::new(cp_nodeid, cp_seid);
@@ -121,11 +178,6 @@ pub async fn handle_session_establishment_request(
     for (idx, create_far) in req.create_fars.iter().enumerate() {
         match create_far.parse::<CreateFar>() {
             Ok(received_far) => {
-                debug!(
-                    "    CreateFar {}: FAR ID: {}",
-                    idx + 1,
-                    received_far.far_id.value,
-                );
                 create_far_rule(received_far, &mut session);
             }
             Err(_) => {
@@ -138,11 +190,6 @@ pub async fn handle_session_establishment_request(
     for (idx, create_qer) in req.create_qers.iter().enumerate() {
         match create_qer.parse::<CreateQer>() {
             Ok(received_qer) => {
-                debug!(
-                    "    CreateFar {}: FAR ID: {}",
-                    idx + 1,
-                    received_qer.qer_id.value,
-                );
                 create_qer_rule(received_qer, &mut session);
             }
             Err(_) => {
@@ -155,11 +202,6 @@ pub async fn handle_session_establishment_request(
     for (idx, create_urr) in req.create_urrs.iter().enumerate() {
         match create_urr.parse::<CreateUrr>() {
             Ok(received_urr) => {
-                debug!(
-                    "    CreateFar {}: FAR ID: {}",
-                    idx + 1,
-                    received_urr.urr_id.id,
-                );
                 create_urr_rule(received_urr, &mut session);
             }
             Err(_) => {
@@ -173,15 +215,7 @@ pub async fn handle_session_establishment_request(
     for (idx, create_pdr_ie) in req.create_pdrs.iter().enumerate() {
         match create_pdr_ie.parse::<CreatePdr>() {
             Ok(received_pdr) => {
-                let pdr_id = received_pdr.pdr_id;
-                debug!(
-                    "   CreatePdr: {} PDR: {}, Precedence: {}",
-                    idx + 1,
-                    pdr_id.value,
-                    received_pdr.precedence.value
-                );
-
-                let created_pdr = create_pdr_rule(received_pdr, ctx, &mut session).await?;
+                let created_pdr = create_pdr_rule(&received_pdr, ctx, &mut session).await?;
                 created_pdrs.push(created_pdr.to_ie());
             }
             Err(_) => {
@@ -192,37 +226,35 @@ pub async fn handle_session_establishment_request(
 
     let mut response_builder =
         SessionEstablishmentResponseBuilder::accepted(cp_seid, req.sequence())
-            .node_id(ctx.up_addr().ip())
-            .fseid(up_seid, ctx.up_addr().ip());
+            .node_id(ctx.local_pfcp_addr().ip())
+            .fseid(up_seid, ctx.local_pfcp_addr().ip());
 
     // add all created pdrs to the response
     for created_pdr in created_pdrs {
         response_builder = response_builder.created_pdr(created_pdr);
     }
 
-    let res = match response_builder.build() {
+    let res = match response_builder.marshal() {
         Ok(r) => r,
         Err(PfcpError::MissingMandatoryIe { ie_type, .. }) => {
             error!("Missing mandatory ie {:?} - sending rejection", ie_type);
-            let rejection = SessionEstablishmentResponseBuilder::rejected(cp_seid, req.sequence())
-                .node_id(ctx.up_addr().ip())
-                .marshal()?;
-            ctx.send_to(&rejection, ctx.cp_addr()).await?;
-            return Ok(());
+            SessionEstablishmentResponseBuilder::rejected(cp_seid, req.sequence())
+                .node_id(ctx.local_pfcp_addr().ip())
+                .marshal()?
         }
         Err(e) => {
             error!("Failed to build session establishment response: {e} - sending rejection");
-            let rejection = SessionEstablishmentResponseBuilder::rejected(cp_seid, req.sequence())
-                .node_id(ctx.up_addr().ip())
-                .marshal()?;
-            ctx.send_to(&rejection, ctx.cp_addr()).await?;
-            return Ok(());
+            SessionEstablishmentResponseBuilder::rejected(cp_seid, req.sequence())
+                .node_id(ctx.local_pfcp_addr().ip())
+                .marshal()?
         }
     };
 
-    debug!("Inserting session with SEID: 0x{up_seid:016x}");
+    debug!("Inserting NEW session with SEID: 0x{up_seid:016x}");
+    ctx.compile_session(session.clone()).await?;
     ctx.insert_session(up_seid, session).await;
-    ctx.send_response(&res.marshal(), cp_addr).await
+
+    ctx.send_response(&res, cp_addr).await
 }
 
 pub async fn handle_session_modification_request(
@@ -237,7 +269,6 @@ pub async fn handle_session_modification_request(
             bail!("Session establishment request missing SEID");
         }
     };
-    debug!("request: {:?}", req);
 
     // get a cloned version of a session, updated version'll be reinserted later
     let mut session: PfcpSession = match ctx.get_session(up_seid).await {
@@ -257,11 +288,6 @@ pub async fn handle_session_modification_request(
         for (idx, remove_far) in remove_fars.iter().enumerate() {
             match remove_far.parse::<FarId>() {
                 Ok(received_far_id) => {
-                    debug!(
-                        "    RemoveFar {}: FAR ID: {}",
-                        idx + 1,
-                        received_far_id.value
-                    );
                     remove_far_rule(received_far_id.value);
                 }
                 Err(_) => bail!("error extracting far ID from RemoveFar IE"),
@@ -274,11 +300,6 @@ pub async fn handle_session_modification_request(
         for (idx, remove_qer) in remove_qers.iter().enumerate() {
             match remove_qer.parse::<QerId>() {
                 Ok(received_qer_id) => {
-                    debug!(
-                        "    RemoveQer {}: QER ID: {}",
-                        idx + 1,
-                        received_qer_id.value
-                    );
                     remove_qer_rule(received_qer_id.value);
                 }
                 Err(_) => bail!("error extracting qer ID from RemoveQER IE"),
@@ -291,7 +312,6 @@ pub async fn handle_session_modification_request(
         for (idx, remove_urr) in remove_urrs.iter().enumerate() {
             match remove_urr.parse::<UrrId>() {
                 Ok(received_urr_id) => {
-                    debug!("    RemoveUrr {}: URR ID: {}", idx + 1, received_urr_id.id);
                     remove_urr_rule(received_urr_id.id);
                 }
                 Err(_) => bail!("error extracting urr ID from RemoveURR IE"),
@@ -304,11 +324,6 @@ pub async fn handle_session_modification_request(
         for (idx, remove_pdr) in remove_pdrs.iter().enumerate() {
             match remove_pdr.parse::<PdrId>() {
                 Ok(received_pdr_id) => {
-                    debug!(
-                        "    RemoveFar {}: FAR ID: {}",
-                        idx + 1,
-                        received_pdr_id.value
-                    );
                     remove_pdr_rule(received_pdr_id.value);
                 }
                 Err(_) => bail!("error extracting far ID from RemoveFar IE"),
@@ -322,11 +337,6 @@ pub async fn handle_session_modification_request(
         for (idx, create_far) in create_fars.iter().enumerate() {
             match create_far.parse::<CreateFar>() {
                 Ok(received_far) => {
-                    debug!(
-                        "    CreateFar {}: FAR ID: {}",
-                        idx + 1,
-                        received_far.far_id.value,
-                    );
                     create_far_rule(received_far, &mut session);
                 }
                 Err(_) => {
@@ -341,11 +351,6 @@ pub async fn handle_session_modification_request(
         for (idx, create_qer) in create_qers.iter().enumerate() {
             match create_qer.parse::<CreateQer>() {
                 Ok(received_qer) => {
-                    debug!(
-                        "    CreateFar {}: FAR ID: {}",
-                        idx + 1,
-                        received_qer.qer_id.value,
-                    );
                     create_qer_rule(received_qer, &mut session);
                 }
                 Err(_) => {
@@ -360,11 +365,6 @@ pub async fn handle_session_modification_request(
         for (idx, create_urr) in create_urrs.iter().enumerate() {
             match create_urr.parse::<CreateUrr>() {
                 Ok(received_urr) => {
-                    debug!(
-                        "    CreateFar {}: FAR ID: {}",
-                        idx + 1,
-                        received_urr.urr_id.id,
-                    );
                     create_urr_rule(received_urr, &mut session);
                 }
                 Err(_) => {
@@ -380,15 +380,7 @@ pub async fn handle_session_modification_request(
         for (idx, create_pdr_ie) in create_pdrs.iter().enumerate() {
             match create_pdr_ie.parse::<CreatePdr>() {
                 Ok(received_pdr) => {
-                    let pdr_id = received_pdr.pdr_id;
-                    debug!(
-                        "   CreatePdr: {} PDR: {}, Precedence: {}",
-                        idx + 1,
-                        pdr_id.value,
-                        received_pdr.precedence.value
-                    );
-
-                    let created_pdr = create_pdr_rule(received_pdr, ctx, &mut session).await?;
+                    let created_pdr = create_pdr_rule(&received_pdr, ctx, &mut session).await?;
                     created_pdrs.push(created_pdr.to_ie());
                 }
                 Err(_) => {
@@ -403,11 +395,6 @@ pub async fn handle_session_modification_request(
         for (idx, update_far) in update_far.iter().enumerate() {
             match update_far.parse::<UpdateFar>() {
                 Ok(received_far) => {
-                    debug!(
-                        "    UpdateFar {}: FAR ID: {}",
-                        idx + 1,
-                        received_far.far_id.value,
-                    );
                     update_far_rule(received_far, &mut session);
                 }
                 Err(_) => {
@@ -422,11 +409,6 @@ pub async fn handle_session_modification_request(
         for (idx, update_qer) in update_qers.iter().enumerate() {
             match update_qer.parse::<UpdateQer>() {
                 Ok(received_qer) => {
-                    debug!(
-                        "    UpdateFar {}: FAR ID: {}",
-                        idx + 1,
-                        received_qer.qer_id.value,
-                    );
                     update_qer_rule(received_qer, &mut session);
                 }
                 Err(_) => {
@@ -441,11 +423,6 @@ pub async fn handle_session_modification_request(
         for (idx, update_urr) in update_urrs.iter().enumerate() {
             match update_urr.parse::<UpdateUrr>() {
                 Ok(received_urr) => {
-                    debug!(
-                        "    UpdateFar {}: FAR ID: {}",
-                        idx + 1,
-                        received_urr.urr_id.id,
-                    );
                     update_urr_rule(received_urr, &mut session);
                 }
                 Err(_) => {
@@ -460,8 +437,6 @@ pub async fn handle_session_modification_request(
         for (idx, update_pdr_ie) in update_pdrs.iter().enumerate() {
             match update_pdr_ie.parse::<UpdatePdr>() {
                 Ok(received_pdr) => {
-                    let pdr_id = received_pdr.pdr_id;
-                    debug!("   UpdatePdr: {} PDR: {}", idx + 1, pdr_id.value);
                     update_pdr_rule(received_pdr, ctx, &mut session).await?;
                 }
                 Err(_) => {
@@ -473,5 +448,10 @@ pub async fn handle_session_modification_request(
 
     let res = SessionModificationResponseBuilder::accepted(session.cp_seid(), req.sequence())
         .created_pdrs(created_pdrs);
+
+    debug!("Inserting UPDATED session with SEID: 0x{up_seid:016x}");
+    ctx.compile_session(session.clone()).await?;
+    ctx.insert_session(up_seid, session).await;
+
     ctx.send_response(&res.marshal(), cp_addr).await
 }

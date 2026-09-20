@@ -38,6 +38,7 @@ pub fn handle_gpdu_message(ctx: &XdpContext, pkt_ctx: &PacketContext) -> Result<
     } else {
         return Ok(xdp_action::XDP_ABORTED);
     };
+    debug!(ctx, "incoming G-PDU message");
 
     let ext_tot_len = inner.psc.ext_tot_len();
     let upf_ip = pkt_ctx.upf_ipv4();

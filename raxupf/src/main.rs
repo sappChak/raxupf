@@ -15,7 +15,6 @@ struct Opt {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let opt = Opt::parse();
     let configuration = get_configuration()?;
     debug!("configuration: {:?}", configuration.logger.name);
 
@@ -42,10 +41,10 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let Opt { iface } = opt;
+    let interface = &configuration.gtpu.iface;
     let program: &mut Xdp = ebpf.program_mut("raxupf").unwrap().try_into()?;
     program.load()?;
-    program.attach(&iface, XdpMode::default())
+    program.attach(interface, XdpMode::default())
         .context("failed to attach the XDP program with default mode - try changing XdpMode::default() to XdpMode::Skb")?;
 
     let ctx = PfcpContext::new(&mut ebpf, &configuration).await?;

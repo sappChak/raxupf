@@ -65,14 +65,15 @@ fn pdi_matches(pdi: &PdiPod, pkt: &PacketContext) -> bool {
         };
 
         if (pdi.pdi_mask().contains(PdiMask::F_TEID) && pdi.fteid() != inner.gtpu.local_fteid)
-            || (pdi.pdi_mask().contains(PdiMask::UE_IPV4) && pdi.ue_ipv4_address() != ue_ip)
+            || (pdi.pdi_mask().contains(PdiMask::UE_IP)
+                && pdi.ue_ip_address().ipv4_address() != ue_ip)
         {
             return false;
         }
     } else {
         // no inner packet -> it's N6
         let ue_ip = pkt.dst_ipv4().to_bits();
-        if pdi.pdi_mask().contains(PdiMask::UE_IPV4) && pdi.ue_ipv4_address() != ue_ip {
+        if pdi.pdi_mask().contains(PdiMask::UE_IP) && pdi.ue_ip_address().ipv4_address() != ue_ip {
             return false;
         }
     };

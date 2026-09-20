@@ -7,10 +7,10 @@ use raxupf_common::{
     qer::QerInfo, urr::UrrInfo,
 };
 
-#[map(name = "UPLINK_PDRS")]
+#[map(name = "UL_PDR_MAP")]
 pub static UPLINK_PDRS: HashMap<u32, [PdrInfo; PDR_MAP_SIZE]> =
     HashMap::with_max_entries(PDR_MAP_SIZE as u32, 0);
-#[map(name = "DOWNLINK_PDRS")]
+#[map(name = "DL_PDR_MAP")]
 pub static DOWNLINK_PDRS: HashMap<u32, [PdrInfo; PDR_MAP_SIZE]> =
     HashMap::with_max_entries(PDR_MAP_SIZE as u32, 0);
 

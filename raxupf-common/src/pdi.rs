@@ -1,13 +1,13 @@
 use bitflags::bitflags;
 
-use crate::{MAX_QFI_NUM, SDF_MAP_SIZE, fteid::FteidPod, sdf::SdfFilterPod};
+use crate::{MAX_QFI_NUM, SDF_MAP_SIZE, fteid::FteidPod, sdf::SdfFilterPod, ue_ip::UeIpPod};
 
 bitflags! {
     #[repr(transparent)]
     #[derive(Clone, Copy)]
     pub struct PdiMask: u16 {
         const F_TEID = 1 << 0;
-        const UE_IPV4 = 1 << 1;
+        const UE_IP = 1 << 1;
         const SDF_FILTER = 1 << 2;
         const QFI = 1 << 3;
     }
@@ -41,7 +41,7 @@ pub struct PdiPod {
     pdi_mask: PdiMask,
     source_interface: u8,
     fteid: FteidPod,
-    ue_ipv4_address: u32,
+    ue_ip_address: UeIpPod,
     qfis: [u8; MAX_QFI_NUM],
     sdfs: [SdfFilterPod; SDF_MAP_SIZE],
 }
@@ -58,7 +58,7 @@ impl PdiPod {
             pdi_mask: PdiMask::empty(),
             source_interface: 0,
             fteid: FteidPod::default(),
-            ue_ipv4_address: 0,
+            ue_ip_address: UeIpPod::default(),
             qfis: [0; MAX_QFI_NUM],
             sdfs: [SdfFilterPod::default(); SDF_MAP_SIZE],
         }
@@ -89,13 +89,13 @@ impl PdiPod {
         self.set_flag(PdiMask::F_TEID);
     }
 
-    pub fn ue_ipv4_address(&self) -> u32 {
-        self.ue_ipv4_address
+    pub fn ue_ip_address(&self) -> UeIpPod {
+        self.ue_ip_address
     }
 
-    pub fn set_ue_ipv4_address(&mut self, ue_ipv4_address: u32) {
-        self.ue_ipv4_address = ue_ipv4_address;
-        self.set_flag(PdiMask::UE_IPV4);
+    pub fn set_ue_ip_address(&mut self, ue_ip_address: UeIpPod) {
+        self.ue_ip_address = ue_ip_address;
+        self.set_flag(PdiMask::UE_IP);
     }
 
     pub fn qfis(&self) -> &[u8] {

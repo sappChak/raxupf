@@ -1,10 +1,9 @@
-use std::collections::{HashMap, hash_map::Entry};
+use std::{
+    collections::{HashMap, hash_map::Entry},
+    net::{Ipv4Addr, Ipv6Addr},
+};
 
 use log::debug;
-use rs_pfcp::{
-    error::PfcpError,
-    ie::{f_teid::Fteid, ue_ip_address::UeIpAddress},
-};
 
 pub struct ResourceManager {
     teids: HashMap<u8, u32>,
@@ -17,11 +16,11 @@ impl ResourceManager {
         }
     }
 
-    pub fn allocate_local_fteid(&mut self) -> Result<Fteid, PfcpError> {
+    pub fn allocate_local_fteid(&mut self) -> anyhow::Result<rs_pfcp::Teid> {
         todo!()
     }
 
-    pub fn allocate_local_fteid_chid(&mut self, choose_id: u8) -> Result<Fteid, PfcpError> {
+    pub fn allocate_local_fteid_chid(&mut self, choose_id: u8) -> anyhow::Result<rs_pfcp::Teid> {
         debug!("allocating F-TEID");
         match self.teids.entry(choose_id) {
             Entry::Occupied(occupied_entry) => todo!(),
@@ -29,8 +28,13 @@ impl ResourceManager {
         }
     }
 
-    pub fn allocate_ue_ip(&mut self) -> Result<UeIpAddress, PfcpError> {
-        debug!("allocating UE IP...");
+    pub fn allocate_ue_ipv4(&mut self) -> anyhow::Result<Ipv4Addr> {
+        debug!("allocating UE IPv4...");
+        todo!()
+    }
+
+    pub fn allocate_ue_ipv6(&mut self) -> anyhow::Result<Ipv6Addr> {
+        debug!("allocating UE IPv6...");
         todo!()
     }
 }

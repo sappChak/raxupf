@@ -1,23 +1,19 @@
-// TODO: add bitflags for possible ipv6 and other flags
-
 #[repr(C)]
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
-pub struct FteidPod {
-    teid: u32,
+#[derive(Default, Clone, Copy)]
+pub struct UeIpPod {
     v4: bool,
     v6: bool,
     ipv4_address: u32,
     ipv6_address: [u8; 16],
 }
 
-impl FteidPod {
-    pub fn new(teid: u32, ipv4_address: u32, ipv6_address: [u8; 16], v4: bool, v6: bool) -> Self {
+impl UeIpPod {
+    pub fn new(ipv4_address: u32, ipv6_address: [u8; 16], v4: bool, v6: bool) -> Self {
         Self {
-            teid,
-            ipv4_address,
-            ipv6_address,
             v4,
             v6,
+            ipv4_address,
+            ipv6_address,
         }
     }
 
@@ -27,14 +23,6 @@ impl FteidPod {
 
     pub fn is_v6(&self) -> bool {
         self.v6
-    }
-
-    pub fn teid(&self) -> u32 {
-        self.teid
-    }
-
-    pub fn set_teid(&mut self, teid: u32) {
-        self.teid = teid;
     }
 
     pub fn ipv4_address(&self) -> u32 {
@@ -57,4 +45,4 @@ impl FteidPod {
 }
 
 #[cfg(feature = "user")]
-unsafe impl aya::Pod for FteidPod {}
+unsafe impl aya::Pod for UeIpPod {}

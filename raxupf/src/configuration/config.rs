@@ -23,7 +23,10 @@ pub struct PfcpConfiguration {
 
 #[derive(serde::Deserialize)]
 pub struct GtpuConfiguration {
-    pub addr: String,
+    pub mode: String,
+    pub iface: String,
+    pub ipv4_addr: String,
+    pub ipv6_addr: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
