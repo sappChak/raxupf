@@ -45,7 +45,7 @@ enum Addr {
     Any,
     Assigned,
     IpAddr(IpAddr),
-    IpAddrPrefix(IpAddr, u8),
+    IpAddrPrefix(IpAddr, u32),
 }
 
 fn parse_action(input: &mut &str) -> Result<Action> {
@@ -100,7 +100,7 @@ fn parse_address(input: &mut &str) -> Result<Addr> {
     .parse_next(input)?
     {
         let ip = IpAddr::V4(Ipv4Addr::from_str(ip).unwrap());
-        let prefix = prefix.parse::<u8>().unwrap();
+        let prefix = prefix.parse::<u32>().unwrap();
         return Ok(Addr::IpAddrPrefix(ip, prefix));
     }
     if let Some(ip) = opt(take_until(0.., ' ')).parse_next(input)? {
@@ -173,11 +173,11 @@ pub fn parse_sdf_filter(sdf: &SdfFilter) -> anyhow::Result<SdfFilterPod> {
         Ok(Addr::Any | Addr::Assigned) => {}
         Ok(Addr::IpAddr(IpAddr::V4(ip))) => {
             sdf_filter.set_src_ip(ip.to_bits());
+            sdf_filter.set_src_ip_prefix(32);
         }
-        Ok(Addr::IpAddrPrefix(IpAddr::V4(ip), _prefix)) => {
+        Ok(Addr::IpAddrPrefix(IpAddr::V4(ip), prefix)) => {
             sdf_filter.set_src_ip(ip.to_bits());
-            // TODO:
-            // sdf_filter.set_src_ip_prefix(prefix);
+            sdf_filter.set_src_ip_prefix(prefix);
         }
         Ok(_) | Err(_) => {
             bail!("SDF flow description must contain a valid source address after 'from'")
@@ -206,8 +206,9 @@ pub fn parse_sdf_filter(sdf: &SdfFilter) -> anyhow::Result<SdfFilterPod> {
         Ok(Addr::IpAddr(IpAddr::V4(ip))) => {
             sdf_filter.set_dst_ip(ip.to_bits());
         }
-        Ok(Addr::IpAddrPrefix(IpAddr::V4(ip), _prefix)) => {
+        Ok(Addr::IpAddrPrefix(IpAddr::V4(ip), prefix)) => {
             sdf_filter.set_dst_ip(ip.to_bits());
+            sdf_filter.set_dst_ip_prefix(prefix);
         }
         Ok(_) | Err(_) => {
             bail!("SDF flow description must contain a valid destination address after 'to'")

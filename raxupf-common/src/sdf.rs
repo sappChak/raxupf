@@ -17,7 +17,9 @@ bitflags! {
 pub struct SdfFilterPod {
     protocol: u8,
     src_ip: u32,
+    src_ip_mask: u32,
     dst_ip: u32,
+    dst_ip_mask: u32,
     src_port_range: PortRange,
     dst_port_range: PortRange,
     flags: SdfFlags,
@@ -58,6 +60,10 @@ impl SdfFilterPod {
         self.src_ip = src_addr;
     }
 
+    pub fn set_src_ip_prefix(&mut self, src_ip_prefix: u32) {
+        self.src_ip_mask = prefix_to_mask(src_ip_prefix);
+    }
+
     pub fn dst_ip(&self) -> u32 {
         self.dst_ip
     }
@@ -65,6 +71,10 @@ impl SdfFilterPod {
     pub fn set_dst_ip(&mut self, dst_addr: u32) {
         self.flags |= SdfFlags::DST_ADDR;
         self.dst_ip = dst_addr;
+    }
+
+    pub fn set_dst_ip_prefix(&mut self, dst_ip_prefix: u32) {
+        self.dst_ip_mask = prefix_to_mask(dst_ip_prefix);
     }
 
     pub fn src_port_range(&self) -> PortRange {
@@ -105,6 +115,14 @@ impl PortRange {
 
     pub fn set_end(&mut self, end: u16) {
         self.end = end;
+    }
+}
+
+fn prefix_to_mask(prefix: u32) -> u32 {
+    if prefix == 0 {
+        0
+    } else {
+        !0u32 << (32 - prefix)
     }
 }
 
