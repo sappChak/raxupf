@@ -4,34 +4,34 @@ use rs_pfcp::ie::{create_far::CreateFar, update_far::UpdateFar};
 
 use crate::{rules::helpers::ohc_description_to_flags, session::PfcpSession};
 
-pub fn create_far_rule(received_far: CreateFar, session: &mut PfcpSession) {
+pub fn create_far_rule(received_far: CreateFar, session: &mut PfcpSession) -> anyhow::Result<()> {
     debug!("Incoming FAR: {:?}", received_far);
-    let id = received_far.far_id.value;
-    let mut info = FarInfo::new();
+    let far_id = received_far.far_id.value;
+    let mut far_info = FarInfo::default();
 
     // access octet 5, which contains all the basic flags
     let action = received_far.apply_action.octets()[0];
-    info.set_action(action);
+    far_info.set_action(action);
 
     if let Some(fp) = received_far.forwarding_parameters {
         let destination_interface = fp.destination_interface;
-        info.set_destination_interface(destination_interface.interface.into());
+        far_info.set_destination_interface(destination_interface.interface.into());
 
         if let Some(tlm) = fp.transport_level_marking {
-            info.set_dscp(tlm.dscp);
+            far_info.set_dscp(tlm.dscp);
         }
 
         if let Some(ohc) = fp.outer_header_creation {
             let teid = ohc.teid.unwrap();
-            info.set_teid(teid.value());
+            far_info.set_teid(teid.value());
             let remote_ip = ohc.ipv4_address.unwrap();
-            info.set_remote_ipv4(remote_ip.to_bits());
+            far_info.set_remote_ipv4(remote_ip.to_bits());
             let flags = ohc_description_to_flags(ohc.description);
-            info.set_ohc(flags);
+            far_info.set_ohc(flags);
         }
-
-        session.insert_far(id, info);
     }
+
+    session.insert_far(far_id, far_info)
 }
 
 pub fn update_far_rule(received_far: UpdateFar, session: &mut PfcpSession) {

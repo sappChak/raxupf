@@ -1,7 +1,7 @@
 use bitflags::bitflags;
 
 bitflags! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Default, Clone, Copy, PartialEq, Eq)]
     pub struct FarAction: u8 {
         const DROP = 1 << 0; // Bit 1
         const FORW = 1 << 1; // Bit 2
@@ -13,7 +13,7 @@ bitflags! {
 
 bitflags! {
     #[repr(transparent)]
-    #[derive(Clone, Copy)]
+    #[derive(Default, Clone, Copy)]
     pub struct OhcFlags: u8 {
         const GTPU_UDP_IPV4 = 1 << 0;
         const GTPU_UDP_IPV6 = 1 << 1;
@@ -37,7 +37,7 @@ pub struct OuterHeaderCreation {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Default, Clone, Copy)]
 pub struct FarInfo {
     destination_interface: u8,
     action: FarAction,
@@ -47,24 +47,7 @@ pub struct FarInfo {
     ohc: OhcFlags,
 }
 
-impl Default for FarInfo {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl FarInfo {
-    pub fn new() -> Self {
-        Self {
-            destination_interface: 0,
-            action: FarAction::empty(),
-            dscp: 0,
-            teid: 0,
-            remote_ipv4: 0,
-            ohc: OhcFlags::empty(),
-        }
-    }
-
     pub fn destination_interface(&self) -> u8 {
         self.destination_interface
     }
