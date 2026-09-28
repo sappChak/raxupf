@@ -173,11 +173,11 @@ pub fn parse_sdf_filter(sdf: &SdfFilter) -> anyhow::Result<SdfFilterPod> {
         Ok(Addr::Any | Addr::Assigned) => {}
         Ok(Addr::IpAddr(IpAddr::V4(ip))) => {
             sdf_filter.set_src_ip(ip.to_bits());
-            sdf_filter.set_src_ip_prefix(32);
+            sdf_filter.set_src_ip_mask(32);
         }
         Ok(Addr::IpAddrPrefix(IpAddr::V4(ip), prefix)) => {
             sdf_filter.set_src_ip(ip.to_bits());
-            sdf_filter.set_src_ip_prefix(prefix);
+            sdf_filter.set_src_ip_mask(prefix);
         }
         Ok(_) | Err(_) => {
             bail!("SDF flow description must contain a valid source address after 'from'")
@@ -205,10 +205,11 @@ pub fn parse_sdf_filter(sdf: &SdfFilter) -> anyhow::Result<SdfFilterPod> {
         Ok(Addr::Any | Addr::Assigned) => {}
         Ok(Addr::IpAddr(IpAddr::V4(ip))) => {
             sdf_filter.set_dst_ip(ip.to_bits());
+            sdf_filter.set_dst_ip_mask(32);
         }
         Ok(Addr::IpAddrPrefix(IpAddr::V4(ip), prefix)) => {
             sdf_filter.set_dst_ip(ip.to_bits());
-            sdf_filter.set_dst_ip_prefix(prefix);
+            sdf_filter.set_dst_ip_mask(prefix);
         }
         Ok(_) | Err(_) => {
             bail!("SDF flow description must contain a valid destination address after 'to'")
@@ -328,5 +329,7 @@ mod tests {
         expected_sdf.set_src_port_range(PortRange::new(80, 80));
         expected_sdf.set_dst_port_range(PortRange::new(10000, 20000));
         assert_eq!(expected_sdf, sdf_filter);
+
+        // permit out ip from 10.60.0.0/16 to any
     }
 }

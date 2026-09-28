@@ -18,6 +18,7 @@ pub struct GtpuOptFields {
 }
 
 // Table 6.1-1, 3GPP TS 29.281 Rel 17
+#[derive(Debug)]
 pub enum GtpuMessageType {
     EchoRequest = 1,
     EchoResponse = 2,

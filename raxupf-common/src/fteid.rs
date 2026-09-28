@@ -1,7 +1,7 @@
 // TODO: add bitflags for possible ipv6 and other flags
 
 #[repr(C)]
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct FteidPod {
     teid: u32,
     v4: bool,

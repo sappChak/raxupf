@@ -4,7 +4,7 @@
 use core::net::Ipv4Addr;
 
 use aya_ebpf::{bindings::xdp_action, macros::xdp, programs::XdpContext};
-use aya_log_ebpf::{error, warn};
+use aya_log_ebpf::{debug, error, warn};
 use network_types::{
     eth::{EthHdr, EtherType},
     ip::{IpProto, Ipv4Hdr},
@@ -15,7 +15,7 @@ use raxupf_ebpf::{
     GTPU_DST_PORT,
     gtpu::GtpuMessageType,
     gtpu_helpers::{encapsulate_into_gtpu, route_packet_l2},
-    helpers::{ptr_at, ptr_at_mut},
+    helpers::{parse_l3_l4_headers, ptr_at, ptr_at_mut},
     maps::{DOWNLINK_PDRS, INT_IPS},
     message_handlers::{
         handle_echo_request, handle_echo_response, handle_end_marker, handle_error_indication,
@@ -37,26 +37,27 @@ fn handle_gtp_packet(ctx: &XdpContext, packet_ctx: &PacketContext) -> Result<u32
     let inner = if let Some(inner) = packet_ctx.inner() {
         inner
     } else {
-        return Ok(xdp_action::XDP_ABORTED);
+        debug!(ctx, "no inner headers inside, dropping");
+        return Ok(xdp_action::XDP_DROP);
     };
 
-    let message_type = &inner.gtpu.message_type;
+    debug!(ctx, "incoming gtp-u message");
 
-    match message_type {
+    match &inner.gtpu.message_type {
         GtpuMessageType::GPdu => return handle_gpdu_message(ctx, packet_ctx),
         GtpuMessageType::EchoRequest => return handle_echo_request(ctx),
         GtpuMessageType::EchoResponse => return handle_echo_response(ctx),
         GtpuMessageType::ErrorIndication => return handle_error_indication(ctx),
         GtpuMessageType::EndMarker => return handle_end_marker(ctx),
         _ => {
-            warn!(ctx, "unsupported message type");
+            warn!(ctx, "unsupported GTP-U message type");
         }
     }
 
     Ok(xdp_action::XDP_DROP)
 }
 
-fn handle_packet(ctx: &XdpContext, packet_ctx: &PacketContext) -> Result<u32, ()> {
+fn handle_n6_packet(ctx: &XdpContext, packet_ctx: &PacketContext) -> Result<u32, ()> {
     let ue_ipv4 = packet_ctx.dst_ipv4();
     let upf_ipv4 = packet_ctx.upf_ipv4();
 
@@ -102,6 +103,10 @@ fn handle_ul_dl(ctx: XdpContext) -> Result<u32, ()> {
     let ethh: &EthHdr = unsafe { &*ptr_at_mut(&ctx, 0)? };
     match ethh.ether_type() {
         Ok(EtherType::Ipv4) => {}
+        Ok(EtherType::Arp) => {
+            debug!(ctx, "incoming arp request, passing");
+            return Ok(xdp_action::XDP_PASS);
+        }
         // TODO: Add IPv6 support
         _ => return Ok(xdp_action::XDP_PASS),
     }
@@ -110,36 +115,26 @@ fn handle_ul_dl(ctx: XdpContext) -> Result<u32, ()> {
     let upf_ipv4 = if let Some(ipv4) = INT_IPS.get(0) {
         Ipv4Addr::from_bits(*ipv4)
     } else {
+        debug!(ctx, "no upf ipv4 configured, dropping packet");
         return Ok(xdp_action::XDP_DROP);
     };
 
     let iph: &Ipv4Hdr = unsafe { &*ptr_at_mut(&ctx, EthHdr::LEN)? };
-    let outer_ipv4 = ParsedIpv4::new(iph.src_addr(), iph.dst_addr(), iph.tot_len() as usize);
-    let mut packet_ctx = PacketContext::new(outer_ipv4, upf_ipv4);
+    let (parsed_iph, parsed_ports) = parse_l3_l4_headers(&ctx, iph, EthHdr::LEN)?;
+    let mut packet_ctx = PacketContext::new(parsed_iph, upf_ipv4, parsed_ports);
 
-    match iph.proto() {
-        Ok(IpProto::Udp) => {
-            let udph: &UdpHdr = unsafe { &*ptr_at_mut(&ctx, EthHdr::LEN + Ipv4Hdr::LEN)? };
-            packet_ctx.set_ports(udph.src_port(), udph.dst_port());
-
-            if packet_ctx.dst_ipv4() == upf_ipv4 && packet_ctx.dst_port() == GTPU_DST_PORT {
-                if let Err(e) = packet_ctx.parse_inner(&ctx) {
-                    return Ok(e);
-                };
-                return handle_gtp_packet(&ctx, &packet_ctx);
-            }
-        }
-        Ok(IpProto::Tcp) => {
-            let tcph: &TcpHdr = unsafe { &*ptr_at(&ctx, EthHdr::LEN + Ipv4Hdr::LEN)? };
-            packet_ctx.set_ports(
-                u16::from_be_bytes(tcph.source),
-                u16::from_be_bytes(tcph.dest),
-            );
-        }
-        _ => return Ok(xdp_action::XDP_PASS),
+    if let Some(ports) = packet_ctx.ports()
+        && packet_ctx.dst_ipv4() == upf_ipv4
+        && ports.dst_port() == GTPU_DST_PORT
+    {
+        if let Err(e) = packet_ctx.parse_inner(&ctx) {
+            debug!(ctx, "failed to parse inner headers, dropping packet");
+            return Ok(e);
+        };
+        return handle_gtp_packet(&ctx, &packet_ctx);
     }
 
-    handle_packet(&ctx, &packet_ctx)
+    handle_n6_packet(&ctx, &packet_ctx)
 }
 
 #[cfg(not(test))]

@@ -34,11 +34,49 @@ fn sdf_matches(pdi: &PdiPod, pkt: &PacketContext) -> bool {
             if sdf.is_allocated() {
                 match pdi.source_interface() {
                     SourceInterface::Access => {
-                        // todo!()
+                        if let Some(inner) = pkt.inner() {
+                            let src_ip = inner.ipv4.src_ipv4().to_bits();
+                            let dst_ip = inner.ipv4.dst_ipv4().to_bits();
+                            let protocol = inner.ipv4.protocol().into();
+                            let (src_port, dst_port) = match &inner.ports {
+                                Some(ports) => (ports.src_port(), ports.dst_port()),
+                                None => (0, 0),
+                            };
+                            // SDF is always in DL form, so swap dest and src
+                            if sdf.matches(dst_ip, src_ip, protocol, dst_port, src_port) {
+                                return true;
+                            }
+                        } else {
+                            // Ain't possible
+                            break;
+                        }
                     }
-                    SourceInterface::Core => {
-                        // todo!()
-                    }
+                    SourceInterface::Core => match pkt.inner() {
+                        Some(inner) => {
+                            let src_ip = inner.ipv4.src_ipv4().to_bits();
+                            let dst_ip = inner.ipv4.dst_ipv4().to_bits();
+                            let protocol = inner.ipv4.protocol().into();
+                            let (src_port, dst_port) = match &inner.ports {
+                                Some(ports) => (ports.src_port(), ports.dst_port()),
+                                None => (0, 0),
+                            };
+                            if sdf.matches(src_ip, dst_ip, protocol, src_port, dst_port) {
+                                return true;
+                            }
+                        }
+                        None => {
+                            let src_ip = pkt.ipv4().src_ipv4().to_bits();
+                            let dst_ip = pkt.ipv4().dst_ipv4().to_bits();
+                            let protocol = pkt.ipv4().protocol().into();
+                            let (src_port, dst_port) = match &pkt.ports() {
+                                Some(ports) => (ports.src_port(), ports.dst_port()),
+                                None => (0, 0),
+                            };
+                            if sdf.matches(src_ip, dst_ip, protocol, src_port, dst_port) {
+                                return true;
+                            }
+                        }
+                    },
                     _ => break,
                 }
             } else {
@@ -54,12 +92,10 @@ fn pdi_matches(pdi: &PdiPod, pkt: &PacketContext) -> bool {
     if let Some(inner) = pkt.inner() {
         let ue_ip = match pdi.source_interface() {
             SourceInterface::Access => {
-                // packet is coming from the gNB over N3
-                inner.ip.src_ipv4().to_bits()
+                inner.ipv4.src_ipv4().to_bits() // packet is coming from the gNB over N3
             }
             SourceInterface::Core => {
-                // packet is coming from the anchor UPF over N9
-                inner.ip.dst_ipv4().to_bits()
+                inner.ipv4.dst_ipv4().to_bits() // packet is coming from the anchor UPF over N9
             }
             _ => return false,
         };
@@ -91,8 +127,7 @@ pub fn process_pdrs(
             let pdi = pdr.pdi();
 
             if !pdi_matches(&pdi, packet_ctx) {
-                // iterate over all PDRs to see whether at least one matches
-                continue;
+                continue; // iterate over all PDRs to see whether at least one matches
             }
 
             let far_id = pdr.far_id();

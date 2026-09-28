@@ -34,6 +34,27 @@ pub struct PortRange {
 }
 
 impl SdfFilterPod {
+    pub fn matches(
+        &self,
+        src_ip: u32,
+        dst_ip: u32,
+        protocol: u8,
+        src_port: u16,
+        dst_port: u16,
+    ) -> bool {
+        if src_ip & self.src_ip_mask != self.src_ip
+            || dst_ip & self.dst_ip_mask != self.dst_ip
+            || protocol != self.protocol
+            || src_port > self.src_port_range().end()
+            || src_port < self.src_port_range().start()
+            || dst_port > self.dst_port_range().end()
+            || dst_port < self.dst_port_range().start()
+        {
+            return false;
+        }
+        true
+    }
+
     pub fn is_allocated(&self) -> bool {
         self.allocated
     }
@@ -60,7 +81,7 @@ impl SdfFilterPod {
         self.src_ip = src_addr;
     }
 
-    pub fn set_src_ip_prefix(&mut self, src_ip_prefix: u32) {
+    pub fn set_src_ip_mask(&mut self, src_ip_prefix: u32) {
         self.src_ip_mask = prefix_to_mask(src_ip_prefix);
     }
 
@@ -73,7 +94,7 @@ impl SdfFilterPod {
         self.dst_ip = dst_addr;
     }
 
-    pub fn set_dst_ip_prefix(&mut self, dst_ip_prefix: u32) {
+    pub fn set_dst_ip_mask(&mut self, dst_ip_prefix: u32) {
         self.dst_ip_mask = prefix_to_mask(dst_ip_prefix);
     }
 
