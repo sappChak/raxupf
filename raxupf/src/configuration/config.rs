@@ -14,7 +14,6 @@ pub struct Configuration {
 #[derive(serde::Deserialize)]
 pub struct PfcpConfiguration {
     pub local_addr: String,
-    pub remote_addr: String,
     pub node_id: String,
     pub ret_timeout: String,
     #[serde(deserialize_with = "deserialize_number_from_string")]

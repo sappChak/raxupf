@@ -69,7 +69,7 @@ pub async fn handle_association_setup_request(
         };
 
     // shall store the Node ID of the CP function as the identifier of the PFCP association
-    let association = PfcpAssociation::new(rnode_id.clone(), ctx.cp_addr().ip());
+    let association = PfcpAssociation::new(rnode_id.clone(), remote_addr.ip());
     let _ = ctx.insert_association(&rnode_id, association).await;
 
     let node_id = ctx.node_id();

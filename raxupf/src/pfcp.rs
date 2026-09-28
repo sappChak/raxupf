@@ -34,7 +34,6 @@ const PFCP_PORT: u16 = 8805; // 3GPP TS 29.244 Release 17, clause 4.2.2
 pub struct PfcpContext {
     socket: UdpSocket,
     up_addr: SocketAddr,
-    cp_addr: SocketAddr,
     node_id: String,
     recovery_ts: SystemTime,
     associations: RwLock<HashMap<String, PfcpAssociation>>, // key: remote node_id
@@ -49,13 +48,10 @@ impl PfcpContext {
     pub async fn new(ebpf: &mut Ebpf, configuration: &Configuration) -> anyhow::Result<Arc<Self>> {
         let local_addr = format!("{}:{}", configuration.pfcp.local_addr.clone(), PFCP_PORT)
             .parse::<SocketAddr>()?;
-        let remote_addr = format!("{}:{}", configuration.pfcp.remote_addr.clone(), PFCP_PORT)
-            .parse::<SocketAddr>()?;
 
         Ok(Arc::new(Self {
             socket: UdpSocket::bind(local_addr).await?,
             up_addr: local_addr,
-            cp_addr: remote_addr,
             node_id: configuration.pfcp.node_id.clone(),
             recovery_ts: SystemTime::now(),
             associations: RwLock::new(HashMap::new()),
@@ -73,10 +69,6 @@ impl PfcpContext {
 
     pub fn local_pfcp_addr(&self) -> SocketAddr {
         self.up_addr
-    }
-
-    pub fn cp_addr(&self) -> SocketAddr {
-        self.cp_addr
     }
 
     pub fn gtp_addr_v4(&self) -> Ipv4Addr {
