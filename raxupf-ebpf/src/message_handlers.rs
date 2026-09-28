@@ -54,25 +54,23 @@ pub fn handle_gpdu_message(ctx: &XdpContext, pkt_ctx: &PacketContext) -> Result<
             Err(err) => return Ok(err),
         };
 
-        let niph_len: u16 = match action {
+        let (niph_len, protocol) = match action {
             PdrAction::Remove => match decapsulate_gtpu(ctx, ext_tot_len) {
-                Ok(len) => len,
+                Ok(len) => (len, inner.ipv4().protocol()),
                 Err(_) => {
                     error!(ctx, "failed to decapsulate GTP-U packet");
                     return Ok(xdp_action::XDP_DROP);
                 }
             },
-            PdrAction::Forward => update_gtpu(ctx, upf_ip, remote_ipv4)?,
+            PdrAction::Forward => (update_gtpu(ctx, upf_ip, remote_ipv4)?, IpProto::Udp),
             _ => return Ok(xdp_action::XDP_DROP),
         };
-
-        debug!(ctx, "ip tot len is: {}", niph_len);
 
         return route_packet_l2(
             ctx,
             upf_ip,
             remote_ipv4,
-            IpProto::Udp, // it should be provided by the PacketContext
+            protocol,
             niph_len,
             ctx.ingress_ifindex() as u32,
         );

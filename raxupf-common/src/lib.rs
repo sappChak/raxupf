@@ -15,7 +15,7 @@ pub mod urr;
 pub const FAR_MAP_SIZE: usize = 10;
 pub const QER_MAP_SIZE: usize = 10;
 pub const URR_MAP_SIZE: usize = 10;
-pub const SDF_MAP_SIZE: usize = 10;
+pub const SDF_MAP_SIZE: usize = 3;
 pub const SESSION_MAP_SIZE: usize = 10;
 pub const PDR_MAP_SIZE: usize = 10;
 pub const MAX_QFI_NUM: usize = 5;

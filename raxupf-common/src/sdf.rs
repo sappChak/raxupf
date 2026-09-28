@@ -1,17 +1,3 @@
-use bitflags::bitflags;
-
-bitflags! {
-    #[repr(transparent)]
-    #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
-    pub struct SdfFlags: u8 {
-        const PROTOCOL = 1 << 0;
-        const SRC_ADDR = 1 << 1;
-        const DST_ADDR = 1 << 2;
-        const SRC_PORT_RANGE = 1 << 3;
-        const DST_PORT_RANGE = 1 << 4;
-    }
-}
-
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct SdfFilterPod {
@@ -22,7 +8,6 @@ pub struct SdfFilterPod {
     dst_ip_mask: u32,
     src_port_range: PortRange,
     dst_port_range: PortRange,
-    flags: SdfFlags,
     allocated: bool,
 }
 
@@ -68,7 +53,6 @@ impl SdfFilterPod {
     }
 
     pub fn set_protocol(&mut self, protocol: u8) {
-        self.flags |= SdfFlags::PROTOCOL;
         self.protocol = protocol;
     }
 
@@ -77,7 +61,6 @@ impl SdfFilterPod {
     }
 
     pub fn set_src_ip(&mut self, src_addr: u32) {
-        self.flags |= SdfFlags::SRC_ADDR;
         self.src_ip = src_addr;
     }
 
@@ -90,7 +73,6 @@ impl SdfFilterPod {
     }
 
     pub fn set_dst_ip(&mut self, dst_addr: u32) {
-        self.flags |= SdfFlags::DST_ADDR;
         self.dst_ip = dst_addr;
     }
 
@@ -103,7 +85,6 @@ impl SdfFilterPod {
     }
 
     pub fn set_src_port_range(&mut self, src_port_range: PortRange) {
-        self.flags |= SdfFlags::SRC_PORT_RANGE;
         self.src_port_range = src_port_range;
     }
 
@@ -112,7 +93,6 @@ impl SdfFilterPod {
     }
 
     pub fn set_dst_port_range(&mut self, dst_port_range: PortRange) {
-        self.flags |= SdfFlags::DST_PORT_RANGE;
         self.dst_port_range = dst_port_range;
     }
 }

@@ -2,16 +2,15 @@ use core::net::{Ipv4Addr, Ipv6Addr};
 
 use aya_ebpf::{bindings::xdp_action, programs::XdpContext};
 use network_types::{
-    eth::{EthHdr, EtherType::Ipv6},
+    eth::EthHdr,
     ip::{IpProto, Ipv4Hdr},
-    tcp::TcpHdr,
     udp::UdpHdr,
 };
 
 use crate::{
     GTP_PROTOCOL_TYPE, GTP_VERSION, MAX_EXT_HDRS,
     gtpu::{GtpuExtensionType, GtpuHdr, GtpuMessageType, GtpuOptFields},
-    helpers::{parse_inner_headers, parse_l3_l4_headers, ptr_at, ptr_at_mut},
+    helpers::{parse_inner_headers, ptr_at, ptr_at_mut},
     pdu::{DLPduSession, GtpuDLPduExtensionHdr, ULPduSession},
 };
 
@@ -19,7 +18,7 @@ pub const GTPU_EXT_LEN: usize = GtpuOptFields::LEN + GtpuDLPduExtensionHdr::LEN;
 pub const GTPU_HDR_LEN: usize = GtpuHdr::LEN + GTPU_EXT_LEN;
 pub const OUTER_HDRS_LEN_SUM: usize = Ipv4Hdr::LEN + UdpHdr::LEN + GTPU_HDR_LEN;
 
-use aya_log_ebpf::{error, info};
+use aya_log_ebpf::error;
 use raxupf_common::fteid::FteidPod;
 
 #[derive(Debug)]
@@ -83,6 +82,12 @@ pub struct ParsedInner {
     pub ports: Option<ParsedPorts>,
     pub gtpu: ParsedGtpu,
     pub psc: ParsedPsc,
+}
+
+impl ParsedInner {
+    pub fn ipv4(&self) -> &ParsedIpv4 {
+        &self.ipv4
+    }
 }
 
 #[derive(Debug)]

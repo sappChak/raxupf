@@ -8,20 +8,18 @@ use aya_log_ebpf::{debug, error, warn};
 use network_types::{
     eth::{EthHdr, EtherType},
     ip::{IpProto, Ipv4Hdr},
-    tcp::TcpHdr,
-    udp::UdpHdr,
 };
 use raxupf_ebpf::{
     GTPU_DST_PORT,
     gtpu::GtpuMessageType,
     gtpu_helpers::{encapsulate_into_gtpu, route_packet_l2},
-    helpers::{parse_l3_l4_headers, ptr_at, ptr_at_mut},
+    helpers::{parse_l3_l4_headers, ptr_at_mut},
     maps::{DOWNLINK_PDRS, INT_IPS},
     message_handlers::{
         handle_echo_request, handle_echo_response, handle_end_marker, handle_error_indication,
         handle_gpdu_message,
     },
-    parser::{PacketContext, ParsedIpv4},
+    parser::PacketContext,
     pdr::{ParsedPdr, PdrAction, process_pdrs},
 };
 
@@ -65,7 +63,7 @@ fn handle_n6_packet(ctx: &XdpContext, packet_ctx: &PacketContext) -> Result<u32,
         let ParsedPdr {
             teid,
             qfi,
-            dscp: tos,
+            dscp,
             remote_ipv4,
             action,
         } = match process_pdrs(ctx, packet_ctx, dl_pdrs) {
@@ -73,10 +71,10 @@ fn handle_n6_packet(ctx: &XdpContext, packet_ctx: &PacketContext) -> Result<u32,
             Err(err) => return Ok(err),
         };
 
-        let niph_len = match action {
+        let (niph_len, protocol) = match action {
             PdrAction::Create => {
-                match encapsulate_into_gtpu(ctx, upf_ipv4, remote_ipv4, tos, qfi, teid) {
-                    Ok(ip_len) => ip_len,
+                match encapsulate_into_gtpu(ctx, upf_ipv4, remote_ipv4, dscp, qfi, teid) {
+                    Ok(ip_len) => (ip_len, IpProto::Udp),
                     Err(_) => {
                         error!(ctx, "failed to encapsulate packet into gtp-u");
                         return Ok(xdp_action::XDP_DROP);
@@ -90,7 +88,7 @@ fn handle_n6_packet(ctx: &XdpContext, packet_ctx: &PacketContext) -> Result<u32,
             ctx,
             upf_ipv4,
             remote_ipv4,
-            IpProto::Udp,
+            protocol,
             niph_len,
             ctx.ingress_ifindex() as u32,
         );

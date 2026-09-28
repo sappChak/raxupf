@@ -1,8 +1,9 @@
 use core::net::Ipv4Addr;
 
 use aya_ebpf::{bindings::xdp_action, programs::XdpContext};
-use aya_log_ebpf::warn;
+use aya_log_ebpf::{debug, warn};
 use raxupf_common::{
+    PDR_MAP_SIZE,
     far::{FarAction, OhcFlags},
     pdi::{PdiMask, PdiPod, SourceInterface},
     pdr::{OuterHeaderRemovalFlags, PdrInfo},
@@ -27,7 +28,6 @@ pub struct ParsedPdr {
     pub action: PdrAction,
 }
 
-#[inline(always)]
 fn sdf_matches(pdi: &PdiPod, pkt: &PacketContext) -> bool {
     if pdi.pdi_mask().contains(PdiMask::SDF_FILTER) {
         for sdf in pdi.sdfs() {
@@ -117,10 +117,11 @@ fn pdi_matches(pdi: &PdiPod, pkt: &PacketContext) -> bool {
     sdf_matches(pdi, pkt)
 }
 
+#[inline(always)]
 pub fn process_pdrs(
     ctx: &XdpContext,
     packet_ctx: &PacketContext,
-    pdrs: &[PdrInfo],
+    pdrs: &[PdrInfo; PDR_MAP_SIZE],
 ) -> Result<ParsedPdr, u32> {
     for pdr in pdrs {
         if pdr.is_allocated() {
@@ -149,17 +150,19 @@ pub fn process_pdrs(
             let mut allocated_qfi = false;
             for qer_id in pdr.qer_ids() {
                 if let Some(qer) = unsafe { QER_MAP.get(qer_id) } {
+                    // TODO: enforce policies, implement rate limiting
                     if qer.is_closed() {
+                        debug!(ctx, "QER is closed, dropping...");
                         return Err(xdp_action::XDP_DROP);
                     }
                     if qer.has_qfi() {
                         qfi = qer.qfi();
                         allocated_qfi = true;
                     }
-                    // TODO: enforce policies, implement rate limiting
                 }
             }
             if !allocated_qfi {
+                debug!(ctx, "no QER with allocated QFI found, dropping...");
                 return Err(xdp_action::XDP_DROP);
             }
 

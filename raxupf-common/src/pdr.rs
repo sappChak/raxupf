@@ -94,11 +94,11 @@ impl PdrInfo {
         self.far_id
     }
 
-    pub fn qer_ids(&self) -> &[u32] {
+    pub fn qer_ids(&self) -> &[u32; QER_MAP_SIZE] {
         &self.qer_ids
     }
 
-    pub fn urr_ids(&self) -> &[u32] {
+    pub fn urr_ids(&self) -> &[u32; URR_MAP_SIZE] {
         &self.urr_ids
     }
 

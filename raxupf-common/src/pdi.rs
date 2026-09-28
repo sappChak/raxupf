@@ -85,8 +85,8 @@ impl PdiPod {
     }
 
     pub fn set_fteid(&mut self, fteid: FteidPod) {
-        self.fteid = fteid;
         self.set_flag(PdiMask::F_TEID);
+        self.fteid = fteid;
     }
 
     pub fn ue_ip_address(&self) -> UeIpPod {
@@ -94,20 +94,20 @@ impl PdiPod {
     }
 
     pub fn set_ue_ip_address(&mut self, ue_ip_address: UeIpPod) {
-        self.ue_ip_address = ue_ip_address;
         self.set_flag(PdiMask::UE_IP);
+        self.ue_ip_address = ue_ip_address;
     }
 
-    pub fn qfis(&self) -> &[u8] {
+    pub fn qfis(&self) -> &[u8; MAX_QFI_NUM] {
         &self.qfis
     }
 
     pub fn set_qfi(&mut self, idx: usize, qfi: u8) {
-        self.qfis[idx] = qfi;
         self.set_flag(PdiMask::QFI);
+        self.qfis[idx] = qfi;
     }
 
-    pub fn sdfs(&self) -> &[SdfFilterPod] {
+    pub fn sdfs(&self) -> &[SdfFilterPod; SDF_MAP_SIZE] {
         &self.sdfs
     }
 
