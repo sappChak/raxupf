@@ -40,7 +40,7 @@ pub fn handle_gpdu_message(ctx: &XdpContext, pkt_ctx: &PacketContext) -> Result<
     };
 
     let ext_tot_len = inner.psc.ext_tot_len();
-    let upf_ip = pkt_ctx.upf_ipv4();
+    let local_ipv4 = pkt_ctx.upf_ipv4();
 
     if let Some(ul_pdrs) = unsafe { UPLINK_PDRS.get(inner.gtpu.local_fteid.teid()) } {
         let ParsedPdr {
@@ -58,17 +58,17 @@ pub fn handle_gpdu_message(ctx: &XdpContext, pkt_ctx: &PacketContext) -> Result<
             PdrAction::Remove => match decapsulate_gtpu(ctx, ext_tot_len) {
                 Ok(len) => (len, inner.ipv4().protocol()),
                 Err(_) => {
-                    error!(ctx, "failed to decapsulate GTP-U packet");
+                    error!(ctx, "failed to decapsulate gtp-u packet");
                     return Ok(xdp_action::XDP_DROP);
                 }
             },
-            PdrAction::Forward => (update_gtpu(ctx, upf_ip, remote_ipv4)?, IpProto::Udp),
+            PdrAction::Forward => (update_gtpu(ctx, local_ipv4, remote_ipv4)?, IpProto::Udp),
             _ => return Ok(xdp_action::XDP_DROP),
         };
 
         return route_packet_l2(
             ctx,
-            upf_ip,
+            local_ipv4,
             remote_ipv4,
             protocol,
             niph_len,

@@ -35,11 +35,11 @@ fn handle_gtp_packet(ctx: &XdpContext, packet_ctx: &PacketContext) -> Result<u32
     let inner = if let Some(inner) = packet_ctx.inner() {
         inner
     } else {
-        debug!(ctx, "no inner headers inside, dropping");
+        error!(ctx, "no inner headers inside, dropping");
         return Ok(xdp_action::XDP_DROP);
     };
 
-    debug!(ctx, "incoming gtp-u message");
+    debug!(ctx, "incoming gtp-u");
 
     match &inner.gtpu.message_type {
         GtpuMessageType::GPdu => return handle_gpdu_message(ctx, packet_ctx),
@@ -48,7 +48,7 @@ fn handle_gtp_packet(ctx: &XdpContext, packet_ctx: &PacketContext) -> Result<u32
         GtpuMessageType::ErrorIndication => return handle_error_indication(ctx),
         GtpuMessageType::EndMarker => return handle_end_marker(ctx),
         _ => {
-            warn!(ctx, "unsupported GTP-U message type");
+            warn!(ctx, "unsupported gtp-u message type");
         }
     }
 
@@ -56,10 +56,7 @@ fn handle_gtp_packet(ctx: &XdpContext, packet_ctx: &PacketContext) -> Result<u32
 }
 
 fn handle_n6_packet(ctx: &XdpContext, packet_ctx: &PacketContext) -> Result<u32, ()> {
-    let ue_ipv4 = packet_ctx.dst_ipv4();
-    let upf_ipv4 = packet_ctx.upf_ipv4();
-
-    if let Some(dl_pdrs) = unsafe { DOWNLINK_PDRS.get(ue_ipv4.to_bits()) } {
+    if let Some(dl_pdrs) = unsafe { DOWNLINK_PDRS.get(packet_ctx.dst_ipv4().to_bits()) } {
         let ParsedPdr {
             teid,
             qfi,
@@ -71,9 +68,11 @@ fn handle_n6_packet(ctx: &XdpContext, packet_ctx: &PacketContext) -> Result<u32,
             Err(err) => return Ok(err),
         };
 
+        let local_ipv4 = packet_ctx.upf_ipv4();
+
         let (niph_len, protocol) = match action {
             PdrAction::Create => {
-                match encapsulate_into_gtpu(ctx, upf_ipv4, remote_ipv4, dscp, qfi, teid) {
+                match encapsulate_into_gtpu(ctx, local_ipv4, remote_ipv4, dscp, qfi, teid) {
                     Ok(ip_len) => (ip_len, IpProto::Udp),
                     Err(_) => {
                         error!(ctx, "failed to encapsulate packet into gtp-u");
@@ -81,12 +80,15 @@ fn handle_n6_packet(ctx: &XdpContext, packet_ctx: &PacketContext) -> Result<u32,
                     }
                 }
             }
-            _ => return Ok(xdp_action::XDP_DROP),
+            _ => {
+                debug!(ctx, "unsupported PDR action for downlink packet, dropping");
+                return Ok(xdp_action::XDP_DROP);
+            }
         };
 
         return route_packet_l2(
             ctx,
-            upf_ipv4,
+            local_ipv4,
             remote_ipv4,
             protocol,
             niph_len,
@@ -113,7 +115,7 @@ fn handle_ul_dl(ctx: XdpContext) -> Result<u32, ()> {
     let upf_ipv4 = if let Some(ipv4) = INT_IPS.get(0) {
         Ipv4Addr::from_bits(*ipv4)
     } else {
-        debug!(ctx, "no upf ipv4 configured, dropping packet");
+        debug!(ctx, "no upf ipv4 configured, dropping");
         return Ok(xdp_action::XDP_DROP);
     };
 
@@ -126,7 +128,7 @@ fn handle_ul_dl(ctx: XdpContext) -> Result<u32, ()> {
         && ports.dst_port() == GTPU_DST_PORT
     {
         if let Err(e) = packet_ctx.parse_inner(&ctx) {
-            debug!(ctx, "failed to parse inner headers, dropping packet");
+            debug!(ctx, "failed to parse inner headers, dropping");
             return Ok(e);
         };
         return handle_gtp_packet(&ctx, &packet_ctx);

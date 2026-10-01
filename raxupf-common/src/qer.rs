@@ -58,7 +58,10 @@ impl QerInfo {
         self.qfi = qfi;
     }
 
-    pub fn is_closed(&self) -> bool {
+    pub fn is_closed(&self, is_uplink: bool) -> bool {
+        if is_uplink {
+            return self.ul_gate_status == GateStatus::Closed;
+        }
         self.dl_gate_status == GateStatus::Closed
     }
 

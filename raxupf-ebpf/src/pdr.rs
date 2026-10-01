@@ -14,12 +14,14 @@ use crate::{
     parser::PacketContext,
 };
 
+#[derive(Debug)]
 pub enum PdrAction {
     Create,
     Remove,
     Forward,
 }
 
+#[derive(Debug)]
 pub struct ParsedPdr {
     pub teid: u32,
     pub qfi: u8,
@@ -28,13 +30,13 @@ pub struct ParsedPdr {
     pub action: PdrAction,
 }
 
-fn sdf_matches(pdi: &PdiPod, pkt: &PacketContext) -> bool {
+fn sdf_matches(pdi: &PdiPod, packet_ctx: &PacketContext) -> bool {
     if pdi.pdi_mask().contains(PdiMask::SDF_FILTER) {
         for sdf in pdi.sdfs() {
             if sdf.is_allocated() {
                 match pdi.source_interface() {
                     SourceInterface::Access => {
-                        if let Some(inner) = pkt.inner() {
+                        if let Some(inner) = packet_ctx.inner() {
                             let src_ip = inner.ipv4.src_ipv4().to_bits();
                             let dst_ip = inner.ipv4.dst_ipv4().to_bits();
                             let protocol = inner.ipv4.protocol().into();
@@ -51,7 +53,7 @@ fn sdf_matches(pdi: &PdiPod, pkt: &PacketContext) -> bool {
                             break;
                         }
                     }
-                    SourceInterface::Core => match pkt.inner() {
+                    SourceInterface::Core => match packet_ctx.inner() {
                         Some(inner) => {
                             let src_ip = inner.ipv4.src_ipv4().to_bits();
                             let dst_ip = inner.ipv4.dst_ipv4().to_bits();
@@ -65,10 +67,10 @@ fn sdf_matches(pdi: &PdiPod, pkt: &PacketContext) -> bool {
                             }
                         }
                         None => {
-                            let src_ip = pkt.ipv4().src_ipv4().to_bits();
-                            let dst_ip = pkt.ipv4().dst_ipv4().to_bits();
-                            let protocol = pkt.ipv4().protocol().into();
-                            let (src_port, dst_port) = match &pkt.ports() {
+                            let src_ip = packet_ctx.ipv4().src_ipv4().to_bits();
+                            let dst_ip = packet_ctx.ipv4().dst_ipv4().to_bits();
+                            let protocol = packet_ctx.ipv4().protocol().into();
+                            let (src_port, dst_port) = match &packet_ctx.ports() {
                                 Some(ports) => (ports.src_port(), ports.dst_port()),
                                 None => (0, 0),
                             };
@@ -88,8 +90,8 @@ fn sdf_matches(pdi: &PdiPod, pkt: &PacketContext) -> bool {
 }
 
 #[inline(always)]
-fn pdi_matches(pdi: &PdiPod, pkt: &PacketContext) -> bool {
-    if let Some(inner) = pkt.inner() {
+fn pdi_matches(pdi: &PdiPod, packet_ctx: &PacketContext) -> bool {
+    if let Some(inner) = packet_ctx.inner() {
         let ue_ip = match pdi.source_interface() {
             SourceInterface::Access => {
                 inner.ipv4.src_ipv4().to_bits() // packet is coming from the gNB over N3
@@ -106,15 +108,22 @@ fn pdi_matches(pdi: &PdiPod, pkt: &PacketContext) -> bool {
         {
             return false;
         }
+        true
     } else {
         // no inner packet -> it's N6
-        let ue_ip = pkt.dst_ipv4().to_bits();
+        let ue_ip = packet_ctx.dst_ipv4().to_bits();
         if pdi.pdi_mask().contains(PdiMask::UE_IP) && pdi.ue_ip_address().ipv4_address() != ue_ip {
             return false;
         }
+        false
     };
 
-    sdf_matches(pdi, pkt)
+    sdf_matches(pdi, packet_ctx)
+}
+
+#[inline(always)]
+fn is_uplink(pdi: &PdiPod) -> bool {
+    matches!(pdi.source_interface(), SourceInterface::Access)
 }
 
 #[inline(always)]
@@ -125,15 +134,12 @@ pub fn process_pdrs(
 ) -> Result<ParsedPdr, u32> {
     for pdr in pdrs {
         if pdr.is_allocated() {
-            let pdi = pdr.pdi();
-
-            if !pdi_matches(&pdi, packet_ctx) {
+            if !pdi_matches(&pdr.pdi(), packet_ctx) {
                 continue; // iterate over all PDRs to see whether at least one matches
             }
+            let is_uplink = is_uplink(&pdr.pdi());
 
-            let far_id = pdr.far_id();
-            let ohr = pdr.ohr();
-            let far = match unsafe { FAR_MAP.get(far_id) } {
+            let far = match unsafe { FAR_MAP.get(pdr.far_id()) } {
                 Some(far) => {
                     let action = far.action();
                     if action == FarAction::FORW {
@@ -151,7 +157,7 @@ pub fn process_pdrs(
             for qer_id in pdr.qer_ids() {
                 if let Some(qer) = unsafe { QER_MAP.get(qer_id) } {
                     // TODO: enforce policies, implement rate limiting
-                    if qer.is_closed() {
+                    if qer.is_closed(is_uplink) {
                         debug!(ctx, "QER is closed, dropping...");
                         return Err(xdp_action::XDP_DROP);
                     }
@@ -177,6 +183,7 @@ pub fn process_pdrs(
             }
 
             // TODO: check whether FAR destination interface matches these decisions
+            let ohr = pdr.ohr();
             let action: PdrAction = if ohr.contains(OuterHeaderRemovalFlags::GTPU_UDP_IPV4)
                 && far.ohc().contains(OhcFlags::GTPU_UDP_IPV4)
             {

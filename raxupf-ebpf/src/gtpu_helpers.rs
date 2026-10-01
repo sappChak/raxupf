@@ -1,7 +1,7 @@
 use core::net::Ipv4Addr;
 
 use aya_ebpf::{
-    bindings::{BPF_FIB_LOOKUP_OUTPUT, bpf_fib_lookup, xdp_action},
+    bindings::{bpf_fib_lookup, xdp_action},
     helpers::{bpf_fib_lookup, generated::bpf_xdp_adjust_head},
     programs::XdpContext,
 };
@@ -18,6 +18,7 @@ use crate::{
     helpers::{csum_replace4, ipv4_csum, ptr_at, ptr_at_mut},
     pdu::{DLPduSession, GtpuDLPduExtensionHdr},
 };
+use aya_log_ebpf::debug;
 
 pub const GTPU_EXT_LEN: usize = GtpuOptFields::LEN + GtpuDLPduExtensionHdr::LEN;
 pub const GTPU_HDR_LEN: usize = GtpuHdr::LEN + GTPU_EXT_LEN;
@@ -45,7 +46,7 @@ pub fn do_fib_lookup(
             ctx.ctx as *mut _,
             fib,
             core::mem::size_of_val(fib) as i32,
-            BPF_FIB_LOOKUP_OUTPUT, // perform lookup from egress perspective (default is ingress)
+            0, // perform standard lookup (ip route get)
         )
     }
 }
@@ -76,20 +77,27 @@ pub fn get_fib_macs(
     );
 
     if rc != 0 {
+        debug!(
+            ctx,
+            "fib lookup failed for src_ip: {}, dst_ip: {}, proto: {}, tot_len: {}, ingress_ifindex: {}, rc: {}",
+            src_ip,
+            dst_ip,
+            proto as u8,
+            tot_len,
+            ingress_ifindex,
+            rc
+        );
         return None;
     }
 
-    Some(FibMacs {
-        src_mac: fib.smac,
-        dst_mac: fib.dmac,
-    })
+    Some(FibMacs::new(fib.smac, fib.dmac))
 }
 
 #[inline(always)]
 pub unsafe fn rewrite_macs(eth_src_addr: *mut [u8; 6], eth_dst_addr: *mut [u8; 6], fib: FibMacs) {
     unsafe {
-        core::ptr::copy_nonoverlapping(&fib.src_mac as *const [u8; 6], eth_src_addr, 1);
-        core::ptr::copy_nonoverlapping(&fib.dst_mac as *const [u8; 6], eth_dst_addr, 1);
+        core::ptr::copy_nonoverlapping(&fib.src_mac() as *const [u8; 6], eth_src_addr, 1);
+        core::ptr::copy_nonoverlapping(&fib.dst_mac() as *const [u8; 6], eth_dst_addr, 1);
     }
 }
 
@@ -101,14 +109,24 @@ pub fn route_packet_l2(
     tot_len: u16,
     ingress_ifindex: u32,
 ) -> Result<u32, ()> {
+    debug!(
+        ctx,
+        "routing packet {:i} -> {:i} with tot len {}", src_ip, dst_ip, tot_len
+    );
+
     let ethh: &mut EthHdr = unsafe { &mut *ptr_at_mut(ctx, 0)? };
 
-    let fib = if let Some(fib) = get_fib_macs(ctx, src_ip, dst_ip, proto, tot_len, ingress_ifindex)
-    {
-        fib
-    } else {
-        return Ok(xdp_action::XDP_PASS);
+    let fib = match get_fib_macs(ctx, src_ip, dst_ip, proto, tot_len, ingress_ifindex) {
+        Some(fib) => fib,
+        None => return Ok(xdp_action::XDP_PASS),
     };
+
+    debug!(
+        ctx,
+        "fib success result: src mac: {:mac} -> dst mac: {:mac}",
+        fib.src_mac(),
+        fib.dst_mac()
+    );
 
     unsafe {
         rewrite_macs(
@@ -118,8 +136,10 @@ pub fn route_packet_l2(
         );
     }
     if ingress_ifindex as usize == ctx.ingress_ifindex() {
+        debug!(ctx, "ifindex from fib is the same, xdp_tx'ing packet");
         return Ok(xdp_action::XDP_TX);
     }
+
     // TODO: support multiple physical interfaces
     Ok(xdp_action::XDP_PASS)
 }
@@ -204,8 +224,9 @@ pub fn update_gtpu(ctx: &XdpContext, upf_ipv4: Ipv4Addr, remote_ipv4: Ipv4Addr) 
 }
 
 pub fn decapsulate_gtpu(ctx: &XdpContext, ext_len: usize) -> Result<u16, ()> {
-    let encap_size = Ipv4Hdr::LEN + UdpHdr::LEN + GtpuHdr::LEN + ext_len;
     let oeth: *const EthHdr = ptr_at(ctx, 0)?;
+
+    let encap_size = Ipv4Hdr::LEN + UdpHdr::LEN + GtpuHdr::LEN + ext_len;
     let neth: *mut EthHdr = ptr_at_mut(ctx, encap_size)?;
 
     unsafe {
@@ -219,8 +240,7 @@ pub fn decapsulate_gtpu(ctx: &XdpContext, ext_len: usize) -> Result<u16, ()> {
     };
 
     let iph: &Ipv4Hdr = unsafe { &*ptr_at(ctx, EthHdr::LEN)? };
-    let len = iph.tot_len();
-    Ok(len)
+    Ok(iph.tot_len())
 }
 
 fn initialize_ipv4_header(
