@@ -1,5 +1,5 @@
 #[repr(C)]
-#[derive(Default, PartialEq, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Clone, Copy)]
 pub enum GateStatus {
     Open,
     #[default]
@@ -7,7 +7,7 @@ pub enum GateStatus {
 }
 
 #[repr(C)]
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Mbr {
     /// Uplink maximum bitrate in kbit/s.
     pub uplink: u64,
@@ -22,7 +22,7 @@ impl Mbr {
 }
 
 #[repr(C)]
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Gbr {
     /// Uplink guaranteed bitrate in kbit/s.
     pub uplink: u64,
@@ -37,7 +37,7 @@ impl Gbr {
 }
 
 #[repr(C)]
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct QerInfo {
     dl_gate_status: GateStatus,
     ul_gate_status: GateStatus,
@@ -87,6 +87,10 @@ impl QerInfo {
 
     pub fn is_allocated(&self) -> bool {
         self.allocated
+    }
+
+    pub fn set_allocated(&mut self, allocated: bool) {
+        self.allocated = allocated;
     }
 }
 

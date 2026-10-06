@@ -1,7 +1,8 @@
 #![no_std]
+#![allow(clippy::result_unit_err)]
+#![allow(clippy::missing_safety_doc)]
 
 pub mod gtpu;
-pub mod gtpu_helpers;
 pub mod helpers;
 pub mod maps;
 pub mod message_handlers;

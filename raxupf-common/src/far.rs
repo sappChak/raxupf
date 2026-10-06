@@ -45,9 +45,18 @@ pub struct FarInfo {
     teid: u32,
     remote_ipv4: u32,
     ohc: OhcFlags,
+    allocated: bool,
 }
 
 impl FarInfo {
+    pub fn is_allocated(&self) -> bool {
+        self.allocated
+    }
+
+    pub fn set_allocated(&mut self, allocated: bool) {
+        self.allocated = allocated;
+    }
+
     pub fn destination_interface(&self) -> u8 {
         self.destination_interface
     }

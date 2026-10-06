@@ -1,5 +1,5 @@
 #[repr(C)]
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct UeIpPod {
     v4: bool,
     v6: bool,

@@ -1,25 +1,68 @@
 use core::net::{Ipv4Addr, Ipv6Addr};
 
 use aya_ebpf::{bindings::xdp_action, programs::XdpContext};
+use aya_log_ebpf::error;
 use network_types::{
     eth::EthHdr,
     ip::{IpProto, Ipv4Hdr},
     udp::UdpHdr,
 };
+use raxupf_common::fteid::FteidPod;
 
 use crate::{
     GTP_PROTOCOL_TYPE, GTP_VERSION, MAX_EXT_HDRS,
     gtpu::{GtpuExtensionType, GtpuHdr, GtpuMessageType, GtpuOptFields},
     helpers::{parse_inner_headers, ptr_at, ptr_at_mut},
-    pdu::{DLPduSession, GtpuDLPduExtensionHdr, ULPduSession},
+    pdu::{DLPduSession, ULPduSession},
 };
 
-pub const GTPU_EXT_LEN: usize = GtpuOptFields::LEN + GtpuDLPduExtensionHdr::LEN;
-pub const GTPU_HDR_LEN: usize = GtpuHdr::LEN + GTPU_EXT_LEN;
-pub const OUTER_HDRS_LEN_SUM: usize = Ipv4Hdr::LEN + UdpHdr::LEN + GTPU_HDR_LEN;
+#[derive(Debug)]
+pub enum PdrAction {
+    Create,
+    Remove,
+    Forward,
+}
 
-use aya_log_ebpf::error;
-use raxupf_common::fteid::FteidPod;
+#[derive(Debug)]
+pub struct ParsedPdr {
+    teid: u32,
+    qfi: u8,
+    dscp: u8,
+    remote_ipv4: Ipv4Addr,
+    action: PdrAction,
+}
+
+impl ParsedPdr {
+    pub fn new(teid: u32, qfi: u8, dscp: u8, remote_ipv4: Ipv4Addr, action: PdrAction) -> Self {
+        Self {
+            teid,
+            qfi,
+            dscp,
+            remote_ipv4,
+            action,
+        }
+    }
+
+    pub fn teid(&self) -> u32 {
+        self.teid
+    }
+
+    pub fn qfi(&self) -> u8 {
+        self.qfi
+    }
+
+    pub fn dscp(&self) -> u8 {
+        self.dscp
+    }
+
+    pub fn remote_ipv4(&self) -> Ipv4Addr {
+        self.remote_ipv4
+    }
+
+    pub fn action(&self) -> &PdrAction {
+        &self.action
+    }
+}
 
 #[derive(Debug)]
 pub struct ParsedIpv4 {
@@ -150,7 +193,6 @@ impl PacketContext {
 
     pub fn parse_inner(&mut self, ctx: &XdpContext) -> Result<(), u32> {
         let parsed_gtpu = parse_gtpu_header(ctx, self.upf_ipv4)?;
-
         let parsed_psc = parse_pdu_session_container(ctx).map_err(|_| xdp_action::XDP_DROP)?;
         let (ip, ports) = parse_inner_headers(ctx).map_err(|_| xdp_action::XDP_DROP)?;
 

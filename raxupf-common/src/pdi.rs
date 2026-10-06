@@ -4,7 +4,7 @@ use crate::{MAX_QFI_NUM, SDF_MAP_SIZE, fteid::FteidPod, sdf::SdfFilterPod, ue_ip
 
 bitflags! {
     #[repr(transparent)]
-    #[derive(Clone, Copy)]
+    #[derive(Debug, Clone, Copy)]
     pub struct PdiMask: u16 {
         const F_TEID = 1 << 0;
         const UE_IP = 1 << 1;
@@ -36,7 +36,7 @@ impl From<u8> for SourceInterface {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct PdiPod {
     pdi_mask: PdiMask,
     source_interface: u8,
@@ -64,8 +64,8 @@ impl PdiPod {
         }
     }
 
-    pub fn pdi_mask(&self) -> PdiMask {
-        self.pdi_mask
+    pub fn pdi_mask(&self) -> &PdiMask {
+        &self.pdi_mask
     }
 
     pub fn set_flag(&mut self, flag: PdiMask) {
@@ -89,8 +89,8 @@ impl PdiPod {
         self.fteid = fteid;
     }
 
-    pub fn ue_ip_address(&self) -> UeIpPod {
-        self.ue_ip_address
+    pub fn ue_ip_address(&self) -> &UeIpPod {
+        &self.ue_ip_address
     }
 
     pub fn set_ue_ip_address(&mut self, ue_ip_address: UeIpPod) {
