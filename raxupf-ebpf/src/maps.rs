@@ -1,6 +1,6 @@
 use aya_ebpf::{
     macros::map,
-    maps::{Array, HashMap},
+    maps::{Array, HashMap, PerCpuArray, ProgramArray},
 };
 use raxupf_common::{
     FAR_MAP_SIZE, PDR_MAP_SIZE, QER_MAP_SIZE, URR_MAP_SIZE, far::FarInfo, pdr::PdrInfo,
@@ -23,3 +23,8 @@ pub static URR_MAP: HashMap<u32, UrrInfo> = HashMap::with_max_entries(URR_MAP_SI
 
 #[map(name = "INT_IPS")]
 pub static INT_IPS: Array<u32> = Array::with_max_entries(2, 0); // one for N3 and one for N9
+
+#[map(name = "JUMP_TABLE")]
+pub static JUMP_TABLE: ProgramArray = ProgramArray::with_max_entries(2, 0);
+#[map]
+pub static PKT_CTX: PerCpuArray<crate::parser::PacketContext> = PerCpuArray::with_max_entries(1, 0);
