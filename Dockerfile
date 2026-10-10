@@ -1,5 +1,5 @@
 FROM rustlang/rust:nightly-bookworm AS chef
-RUN cargo install cargo-chef
+RUN cargo install --locked cargo-chef
 WORKDIR /app
 
 FROM chef AS planner
@@ -17,7 +17,6 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-RUN rustup component add rust-src
 RUN rustup component add rust-src --toolchain nightly-x86_64-unknown-linux-gnu
 
 RUN curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash \
@@ -30,15 +29,20 @@ COPY . .
 RUN cargo build --release
 
 
-FROM alpine:3.18.5 AS runtime
-
-RUN apk update && apk add bpftool
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    iptables \
+    libelf1 \
+    ca-certificates \
+    iproute2 \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/config /config
 COPY --from=builder /app/target/release/raxupf /usr/local/bin/raxupf
+COPY --from=builder /app/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 ENV RUST_LOG=info
 ENV APP_ENVIRONMENT=local
 
 # CMD is overridden if arguments are passed.
-ENTRYPOINT [ "/usr/local/bin/raxupf" ]
+ENTRYPOINT [ "sh", "/usr/local/bin/entrypoint.sh" ]
