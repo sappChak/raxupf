@@ -4,6 +4,7 @@ use tokio::sync::Mutex;
 
 pub mod association;
 pub mod configuration;
+pub mod handlers;
 pub mod heartbeat;
 pub mod iprule_parser;
 pub mod pfcp;
@@ -48,7 +49,7 @@ impl BpfMaps {
         })
     }
 
-    pub async fn insert_ul_pdr(
+    pub async fn insert_ul_pdrs(
         &self,
         teid: u32,
         pdrs: [PdrInfo; PDR_MAP_SIZE],
@@ -58,7 +59,7 @@ impl BpfMaps {
         Ok(())
     }
 
-    pub async fn insert_dl_pdr_ivp4(
+    pub async fn insert_dl_pdrs_ivp4(
         &self,
         ipv4: u32,
         pdrs: [PdrInfo; PDR_MAP_SIZE],

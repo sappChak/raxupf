@@ -7,10 +7,10 @@ use std::{
 
 use anyhow::bail;
 use aya::Ebpf;
-use log::debug;
+use log::{debug, info};
 use raxupf_common::{PDR_MAP_SIZE, pdr::PdrInfo};
 use rs_pfcp::message::{
-    AssociationSetupRequest, Message, MsgType, SessionEstablishmentRequest,
+    AssociationSetupRequest, HeartbeatRequest, Message, MsgType, SessionEstablishmentRequest,
     SessionModificationRequest,
 };
 use tokio::{
@@ -20,13 +20,15 @@ use tokio::{
 
 use crate::{
     BpfMaps,
-    association::{PfcpAssociation, handle_association_setup_request},
+    association::PfcpAssociation,
     configuration::config::Configuration,
+    handlers::{
+        handle_association_setup_request, handle_session_establishment_request,
+        handle_session_modification_request,
+    },
     heartbeat::handle_hearbeat_request,
     resource_manager::ResourceManager,
-    session::{
-        PfcpSession, handle_session_establishment_request, handle_session_modification_request,
-    },
+    session::PfcpSession,
 };
 
 const PFCP_PORT: u16 = 8805; // 3GPP TS 29.244 Release 17, clause 4.2.2
@@ -48,12 +50,13 @@ impl PfcpContext {
     pub async fn new(ebpf: &mut Ebpf, configuration: &Configuration) -> anyhow::Result<Arc<Self>> {
         let local_addr = format!("{}:{}", configuration.pfcp.local_addr.clone(), PFCP_PORT)
             .parse::<SocketAddr>()?;
+        debug!("binding PFCP server to {local_addr}");
 
         Ok(Arc::new(Self {
             socket: UdpSocket::bind(local_addr).await?,
             up_addr: local_addr,
             node_id: configuration.pfcp.node_id.clone(),
-            recovery_ts: SystemTime::now(),
+            recovery_ts: SystemTime::now(), // indicates time when UPF was started
             associations: RwLock::new(HashMap::new()),
             sessions: RwLock::new(HashMap::new()),
             maps: BpfMaps::new(ebpf)?,
@@ -61,6 +64,63 @@ impl PfcpContext {
             gtp_addr_v6: None,
             resource_manager: Mutex::new(ResourceManager::new()),
         }))
+    }
+
+    pub async fn compile_session(&self, session: PfcpSession) -> anyhow::Result<()> {
+        let teid = match session.teid() {
+            Some(teid) => teid,
+            None => bail!("session has no TEID, cannot compile"),
+        };
+
+        let mut ul_pdrs: Vec<PdrInfo> = session.ul_pdrs.values().cloned().collect();
+        ul_pdrs.sort_by_key(|pdr| pdr.precedence());
+        let mut ul_pdr_slice = [PdrInfo::default(); PDR_MAP_SIZE];
+        for (idx, ul_pdr) in ul_pdrs.iter().enumerate() {
+            info!("Inserting UL PDR: {:?}", ul_pdr);
+            ul_pdr_slice[idx] = *ul_pdr;
+        }
+
+        let mut dl_pdrs: Vec<PdrInfo> = session.dl_pdrs.values().cloned().collect();
+        dl_pdrs.sort_by_key(|pdr| pdr.precedence());
+        let mut dl_pdr_slice = [PdrInfo::default(); PDR_MAP_SIZE];
+        for (idx, dl_pdr) in dl_pdrs.iter().enumerate() {
+            info!("Inserting DL PDR: {:?}", dl_pdr);
+            dl_pdr_slice[idx] = *dl_pdr;
+        }
+
+        for (far_id, far) in &session.fars {
+            info!("Inserting FAR: {:?}", far);
+            self.maps.insert_far(*far_id, *far).await?;
+        }
+
+        for (qer_id, qer) in &session.qers {
+            info!("Inserting QER: {:?}", qer);
+            self.maps.insert_qer(*qer_id, *qer).await?;
+        }
+
+        for (urr_id, urr) in &session.urrs {
+            info!("Inserting URR: {:?}", urr);
+            self.maps.insert_urr(*urr_id, *urr).await?;
+        }
+
+        self.maps.insert_ul_pdrs(teid, ul_pdr_slice).await?;
+        match (session.ue_ipv4(), session.ue_ipv6()) {
+            (None, None) => bail!("session has no UE IP address, cannot compile"),
+            (None, Some(_)) => {
+                todo!()
+            }
+            (Some(ue_ipv4), None) => {
+                self.maps
+                    .insert_dl_pdrs_ivp4(ue_ipv4.to_bits(), dl_pdr_slice)
+                    .await?;
+            }
+            (Some(_), Some(_)) => {
+                debug!("session has both IPv4 and IPv6 UE IP addresses, cannot compile");
+                todo!()
+            }
+        };
+
+        Ok(())
     }
 
     pub fn socket(&self) -> &UdpSocket {
@@ -116,63 +176,8 @@ impl PfcpContext {
         sessions.insert(lseid, session);
     }
 
-    pub async fn compile_session(&self, session: PfcpSession) -> anyhow::Result<()> {
-        let teid = match session.teid() {
-            Some(teid) => teid,
-            None => bail!("session has no TEID, cannot compile"),
-        };
-
-        let mut ul_pdrs: Vec<PdrInfo> = session.ul_pdrs.values().cloned().collect();
-        ul_pdrs.sort_by_key(|pdr| pdr.precedence());
-        let mut ul_pdr_slice = [PdrInfo::default(); PDR_MAP_SIZE];
-        for (idx, ul_pdr) in ul_pdrs.iter().enumerate() {
-            ul_pdr_slice[idx] = *ul_pdr;
-        }
-
-        let mut dl_pdrs: Vec<PdrInfo> = session.dl_pdrs.values().cloned().collect();
-        dl_pdrs.sort_by_key(|pdr| pdr.precedence());
-        let mut dl_pdr_slice = [PdrInfo::default(); PDR_MAP_SIZE];
-        for (idx, dl_pdr) in dl_pdrs.iter().enumerate() {
-            dl_pdr_slice[idx] = *dl_pdr;
-        }
-
-        for (far_id, far) in &session.fars {
-            self.maps.insert_far(*far_id, *far).await?;
-        }
-
-        for (qer_id, qer) in &session.qers {
-            self.maps.insert_qer(*qer_id, *qer).await?;
-        }
-
-        for (urr_id, urr) in &session.urrs {
-            self.maps.insert_urr(*urr_id, *urr).await?;
-        }
-
-        self.maps.insert_ul_pdr(teid, ul_pdr_slice).await?;
-        match (session.ue_ipv4(), session.ue_ipv6()) {
-            (None, None) => bail!("session has no UE IP address, cannot compile"),
-            (None, Some(_)) => {
-                todo!()
-            }
-            (Some(ue_ipv4), None) => {
-                self.maps
-                    .insert_dl_pdr_ivp4(ue_ipv4.to_bits(), ul_pdr_slice)
-                    .await?;
-            }
-            (Some(_), Some(_)) => {
-                todo!()
-            }
-        };
-
-        Ok(())
-    }
-
-    pub async fn send_to(&self, buf: &[u8], to: SocketAddr) -> Result<usize, std::io::Error> {
-        self.socket.send_to(buf, to).await
-    }
-
     pub async fn send_response(&self, bytes: &[u8], to: SocketAddr) -> anyhow::Result<()> {
-        if let Ok(n) = self.send_to(bytes, to).await {
+        if let Ok(n) = self.socket.send_to(bytes, to).await {
             debug!("sent {} bytes to {:?}", n, to);
         };
         Ok(())
@@ -213,7 +218,10 @@ pub async fn handle_messages(ctx: Arc<PfcpContext>) -> anyhow::Result<()> {
                             .await
                             .unwrap()
                     }
-                    MsgType::HeartbeatRequest => handle_hearbeat_request().await.unwrap(),
+                    MsgType::HeartbeatRequest => {
+                        let req = HeartbeatRequest::unmarshal(&buf[..len]).unwrap();
+                        handle_hearbeat_request(&ctx, &req, addr).await.unwrap()
+                    }
                     MsgType::SessionEstablishmentRequest => {
                         debug!("incoming session establishment request from {:?}", addr);
                         let req = SessionEstablishmentRequest::unmarshal(&buf[..len]).unwrap();
