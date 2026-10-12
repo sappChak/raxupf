@@ -10,8 +10,11 @@ use raxupf_common::{
 #[map(name = "UL_PDR_MAP")]
 pub static UPLINK_PDRS: HashMap<u32, [PdrInfo; PDR_MAP_SIZE]> =
     HashMap::with_max_entries(PDR_MAP_SIZE as u32, 0);
-#[map(name = "DL_PDR_MAP")]
-pub static DOWNLINK_PDRS: HashMap<u32, [PdrInfo; PDR_MAP_SIZE]> =
+#[map(name = "DL_PDR_MAP_V4")]
+pub static DOWNLINK_PDRS_V4: HashMap<u32, [PdrInfo; PDR_MAP_SIZE]> =
+    HashMap::with_max_entries(PDR_MAP_SIZE as u32, 0);
+#[map(name = "DL_PDR_MAP_V6")]
+pub static DOWNLINK_PDRS_V6: HashMap<u128, [PdrInfo; PDR_MAP_SIZE]> =
     HashMap::with_max_entries(PDR_MAP_SIZE as u32, 0);
 
 #[map(name = "FAR_MAP")]
@@ -21,8 +24,10 @@ pub static QER_MAP: HashMap<u32, QerInfo> = HashMap::with_max_entries(QER_MAP_SI
 #[map(name = "URR_MAP")]
 pub static URR_MAP: HashMap<u32, UrrInfo> = HashMap::with_max_entries(URR_MAP_SIZE as u32, 0);
 
-#[map(name = "INT_IPS")]
-pub static INT_IPS: Array<u32> = Array::with_max_entries(2, 0); // one for N3 and one for N9
+#[map(name = "INT_IPS_V4")]
+pub static INT_IPS_V4: Array<u32> = Array::with_max_entries(2, 0); // one for N3 and one for N9
+#[map(name = "INT_IPS_V6")]
+pub static INT_IPS_V6: Array<u128> = Array::with_max_entries(2, 0); // one for N3 and one for N9
 
 #[map(name = "JUMP_TABLE")]
 pub static JUMP_TABLE: ProgramArray = ProgramArray::with_max_entries(2, 0);

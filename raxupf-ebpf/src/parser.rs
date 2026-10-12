@@ -1,18 +1,14 @@
-use core::net::{Ipv4Addr, Ipv6Addr};
+use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use aya_ebpf::{bindings::xdp_action, programs::XdpContext};
+use aya_ebpf::programs::XdpContext;
 use aya_log_ebpf::error;
-use network_types::{
-    eth::EthHdr,
-    ip::{IpProto, Ipv4Hdr},
-    udp::UdpHdr,
-};
+use network_types::ip::IpProto;
 use raxupf_common::fteid::FteidPod;
 
 use crate::{
     GTP_PROTOCOL_TYPE, GTP_VERSION, MAX_EXT_HDRS,
     gtpu::{GtpuExtensionType, GtpuHdr, GtpuMessageType, GtpuOptFields},
-    helpers::{parse_inner_headers, ptr_at, ptr_at_mut},
+    helpers::{parse_ip_header, parse_l4_header, ptr_at, ptr_at_mut},
     pdu::{DLPduSession, ULPduSession},
 };
 
@@ -28,17 +24,17 @@ pub struct ParsedPdr {
     teid: u32,
     qfi: u8,
     dscp: u8,
-    remote_ipv4: Ipv4Addr,
+    remote_ip: IpAddr,
     action: PdrAction,
 }
 
 impl ParsedPdr {
-    pub fn new(teid: u32, qfi: u8, dscp: u8, remote_ipv4: Ipv4Addr, action: PdrAction) -> Self {
+    pub fn new(teid: u32, qfi: u8, dscp: u8, remote_ip: IpAddr, action: PdrAction) -> Self {
         Self {
             teid,
             qfi,
             dscp,
-            remote_ipv4,
+            remote_ip,
             action,
         }
     }
@@ -55,8 +51,8 @@ impl ParsedPdr {
         self.dscp
     }
 
-    pub fn remote_ipv4(&self) -> Ipv4Addr {
-        self.remote_ipv4
+    pub fn remote_ip(&self) -> &IpAddr {
+        &self.remote_ip
     }
 
     pub fn action(&self) -> &PdrAction {
@@ -65,33 +61,33 @@ impl ParsedPdr {
 }
 
 #[derive(Debug)]
-pub struct ParsedIpv4 {
-    src_ipv4: Ipv4Addr,
-    dst_ipv4: Ipv4Addr,
-    protocol: IpProto,
+pub struct ParsedIp {
+    src_ip: IpAddr,
+    dst_ip: IpAddr,
+    proto: IpProto,
     tot_len: usize,
 }
 
-impl ParsedIpv4 {
-    pub fn new(src_ipv4: Ipv4Addr, dst_ipv4: Ipv4Addr, protocol: IpProto, tot_len: usize) -> Self {
+impl ParsedIp {
+    pub fn new(src_ip: IpAddr, dst_ip: IpAddr, proto: IpProto, tot_len: usize) -> Self {
         Self {
-            src_ipv4,
-            dst_ipv4,
-            protocol,
+            src_ip,
+            dst_ip,
+            proto,
             tot_len,
         }
     }
 
-    pub fn src_ipv4(&self) -> Ipv4Addr {
-        self.src_ipv4
+    pub fn src_ip(&self) -> &IpAddr {
+        &self.src_ip
     }
 
-    pub fn dst_ipv4(&self) -> Ipv4Addr {
-        self.dst_ipv4
+    pub fn dst_ip(&self) -> &IpAddr {
+        &self.dst_ip
     }
 
-    pub fn protocol(&self) -> IpProto {
-        self.protocol
+    pub fn proto(&self) -> IpProto {
+        self.proto
     }
 
     pub fn tot_len(&self) -> usize {
@@ -120,16 +116,21 @@ impl ParsedPorts {
 }
 
 #[derive(Debug)]
-pub struct ParsedInner {
-    pub ipv4: ParsedIpv4,
-    pub ports: Option<ParsedPorts>,
+pub struct ParsedGtp {
     pub gtpu: ParsedGtpu,
     pub psc: ParsedPsc,
+    pub ip: ParsedIp,
+    pub ports: Option<ParsedPorts>, // it's Option because of ICMP
 }
 
-impl ParsedInner {
-    pub fn ipv4(&self) -> &ParsedIpv4 {
-        &self.ipv4
+impl ParsedGtp {
+    pub fn new(gtpu: ParsedGtpu, psc: ParsedPsc, ip: ParsedIp, ports: Option<ParsedPorts>) -> Self {
+        Self {
+            gtpu,
+            psc,
+            ip,
+            ports,
+        }
     }
 }
 
@@ -143,19 +144,19 @@ pub struct ParsedGtpu {
 
 #[derive(Debug)]
 pub struct PacketContext {
-    ipv4: ParsedIpv4,
-    upf_ipv4: Ipv4Addr,
+    ip: ParsedIp,
+    upf_ip: IpAddr,
     ports: Option<ParsedPorts>,
-    inner: Option<ParsedInner>,
+    gtp: Option<ParsedGtp>,
 }
 
 impl PacketContext {
-    pub fn new(ipv4: ParsedIpv4, upf_ipv4: Ipv4Addr, ports: Option<ParsedPorts>) -> Self {
+    pub fn new(ip: ParsedIp, ports: Option<ParsedPorts>, upf_ip: IpAddr) -> Self {
         Self {
-            ipv4,
-            upf_ipv4,
+            ip,
+            upf_ip,
             ports,
-            inner: None,
+            gtp: None,
         }
     }
 
@@ -167,45 +168,28 @@ impl PacketContext {
         self.ports = Some(ports);
     }
 
-    pub fn upf_ipv4(&self) -> Ipv4Addr {
-        self.upf_ipv4
+    pub fn upf_ip(&self) -> &IpAddr {
+        &self.upf_ip
     }
 
-    pub fn ipv4(&self) -> &ParsedIpv4 {
-        &self.ipv4
+    pub fn ip(&self) -> &ParsedIp {
+        &self.ip
     }
 
-    pub fn src_ipv4(&self) -> Ipv4Addr {
-        self.ipv4.src_ipv4
+    pub fn src_ip(&self) -> &IpAddr {
+        self.ip.src_ip()
     }
 
-    pub fn dst_ipv4(&self) -> Ipv4Addr {
-        self.ipv4.dst_ipv4
+    pub fn dst_ip(&self) -> &IpAddr {
+        self.ip.dst_ip()
     }
 
-    pub fn inner(&self) -> Option<&ParsedInner> {
-        self.inner.as_ref()
+    pub fn gtp(&self) -> Option<&ParsedGtp> {
+        self.gtp.as_ref()
     }
 
-    pub fn set_inner(&mut self, inner: ParsedInner) {
-        self.inner = Some(inner)
-    }
-
-    pub fn parse_inner(&mut self, ctx: &XdpContext) -> Result<(), u32> {
-        let parsed_gtpu = parse_gtpu_header(ctx, self.upf_ipv4)?;
-        let parsed_psc = parse_pdu_session_container(ctx).map_err(|_| xdp_action::XDP_DROP)?;
-        let (ip, ports) = parse_inner_headers(ctx).map_err(|_| xdp_action::XDP_DROP)?;
-
-        let inner = ParsedInner {
-            ipv4: ip,
-            ports,
-            gtpu: parsed_gtpu,
-            psc: parsed_psc,
-        };
-
-        self.set_inner(inner);
-
-        Ok(())
+    pub fn set_gtp(&mut self, inner: ParsedGtp) {
+        self.gtp = Some(inner)
     }
 }
 
@@ -225,42 +209,60 @@ impl ParsedPsc {
     }
 }
 
-pub fn parse_pdu_session_container(ctx: &XdpContext) -> Result<ParsedPsc, ()> {
-    let mut offset = EthHdr::LEN + Ipv4Hdr::LEN + UdpHdr::LEN + GtpuHdr::LEN;
+pub fn parse_gtp(
+    ctx: &XdpContext,
+    upf_ip: IpAddr,
+    offset: usize,
+) -> Result<(ParsedGtp, usize), ()> {
+    let (parsed_gtpu, offset) = parse_gtpu_header(ctx, upf_ip, offset)?;
+    let (parsed_psc, offset) = parse_pdu_session_container(ctx, offset)?;
+
+    let (parsed_ip, offset) = parse_ip_header(ctx, offset)?;
+    let (parsed_ports, offset) = unsafe { parse_l4_header(ctx, parsed_ip.proto(), offset)? };
+
+    let parsed_gtp = ParsedGtp::new(parsed_gtpu, parsed_psc, parsed_ip, parsed_ports);
+    Ok((parsed_gtp, offset))
+}
+
+pub fn parse_pdu_session_container(
+    ctx: &XdpContext,
+    mut offset: usize,
+) -> Result<(ParsedPsc, usize), ()> {
     let gtpu_opt: &GtpuOptFields = unsafe { &*ptr_at(ctx, offset)? };
     let mut exth_type = gtpu_opt.next_extension_header_type();
 
     let (mut ext_tot_len, mut qfi) = (0, None);
     offset += GtpuOptFields::LEN;
+    let mut additional_offset = offset;
     for _ in 0..MAX_EXT_HDRS {
         if let Ok(GtpuExtensionType::NoMoreExtensions) = exth_type {
             break;
         }
 
-        let n: u8 = unsafe { *ptr_at(ctx, offset)? }; // the size of extension block in words
+        let n: u8 = unsafe { *ptr_at(ctx, additional_offset)? }; // the size of extension block in words
         let ext_hdr_length: usize = n as usize * 4;
 
-        if ctx.data() + offset + ext_hdr_length > ctx.data_end() {
+        if ctx.data() + additional_offset + ext_hdr_length > ctx.data_end() {
             return Err(());
         }
 
         ext_tot_len += ext_hdr_length;
-        offset += 1; // ext hdr length field is 1 byte long
+        additional_offset += 1; // ext hdr length field is 1 byte long
         match exth_type {
             Ok(GtpuExtensionType::PduSessionContainer) => {
                 // TODO: use enum instead of magic numbers
-                let pdu_type = unsafe { *ptr_at::<u8>(ctx, offset)? } >> 4; // PDU type field goes first
+                let pdu_type = unsafe { *ptr_at::<u8>(ctx, additional_offset)? } >> 4; // PDU type field goes first
 
                 match pdu_type {
                     0 => {
-                        let dl_pdu: &DLPduSession = unsafe { &*ptr_at(ctx, offset)? };
+                        let dl_pdu: &DLPduSession = unsafe { &*ptr_at(ctx, additional_offset)? };
                         qfi = Some(dl_pdu.qfi());
-                        offset += DLPduSession::LEN;
+                        additional_offset += DLPduSession::LEN;
                     }
                     1 => {
-                        let ul_pdu: &ULPduSession = unsafe { &*ptr_at(ctx, offset)? };
+                        let ul_pdu: &ULPduSession = unsafe { &*ptr_at(ctx, additional_offset)? };
                         qfi = Some(ul_pdu.qfi());
-                        offset += ULPduSession::LEN;
+                        additional_offset += ULPduSession::LEN;
                     }
                     _ => {
                         break;
@@ -274,7 +276,7 @@ pub fn parse_pdu_session_container(ctx: &XdpContext) -> Result<ParsedPsc, ()> {
                 // TODO: handle comprehensive bits
             }
         }
-        let next_ext_hdr_type = unsafe { *ptr_at::<u8>(ctx, offset)? };
+        let next_ext_hdr_type = unsafe { *ptr_at::<u8>(ctx, additional_offset)? };
         exth_type = GtpuExtensionType::try_from(next_ext_hdr_type);
     }
 
@@ -284,23 +286,23 @@ pub fn parse_pdu_session_container(ctx: &XdpContext) -> Result<ParsedPsc, ()> {
         error!(ctx, "no QFI while parsing psc");
         return Err(());
     };
+    let parsed_psc = ParsedPsc { ext_tot_len, qfi };
+    let offset = offset + ext_tot_len;
 
-    Ok(ParsedPsc { ext_tot_len, qfi })
+    Ok((parsed_psc, offset))
 }
 
 #[inline(always)]
-pub fn parse_gtpu_header(ctx: &XdpContext, upf_ipv4: Ipv4Addr) -> Result<ParsedGtpu, u32> {
-    let gtpuh: &GtpuHdr = match ptr_at_mut(ctx, EthHdr::LEN + Ipv4Hdr::LEN + UdpHdr::LEN) {
-        Ok(ptr) => unsafe { &*ptr },
-        Err(_) => {
-            error!(ctx, "error parsing GTP-U header");
-            return Err(xdp_action::XDP_ABORTED);
-        }
-    };
+pub fn parse_gtpu_header(
+    ctx: &XdpContext,
+    upf_ip: IpAddr,
+    offset: usize,
+) -> Result<(ParsedGtpu, usize), ()> {
+    let gtpuh = unsafe { &*ptr_at_mut::<GtpuHdr>(ctx, offset)? };
 
     match (gtpuh.protocol_type(), gtpuh.version()) {
         (GTP_PROTOCOL_TYPE, GTP_VERSION) => {}
-        _ => return Err(xdp_action::XDP_PASS), // everything not GTP-U is passed
+        _ => return Err(()),
     }
 
     let message_type = match gtpuh.message_type() {
@@ -313,23 +315,33 @@ pub fn parse_gtpu_header(ctx: &XdpContext, upf_ipv4: Ipv4Addr) -> Result<ParsedG
             GtpuMessageType::SupportedExtensionHeaders
         }
         Ok(GtpuMessageType::TunnelStatus) => GtpuMessageType::TunnelStatus,
-        Err(_) => {
-            return Err(xdp_action::XDP_DROP);
-        }
+        Err(_) => return Err(()),
     };
 
-    // TODO:
-    let upf_ipv6 = Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0);
-    Ok(ParsedGtpu {
-        local_fteid: FteidPod::new(
+    let local_fteid = match upf_ip {
+        IpAddr::V4(ipv4_addr) => FteidPod::new(
             gtpuh.teid(),
-            upf_ipv4.to_bits(),
-            upf_ipv6.octets(),
+            ipv4_addr.to_bits(),
+            Ipv6Addr::UNSPECIFIED.octets(),
             true,
             false,
         ),
-        message_type,
-        has_flags: gtpuh.has_flags(),
-        has_extension_header: gtpuh.has_extension_header(),
-    })
+        IpAddr::V6(ipv6_addr) => FteidPod::new(
+            gtpuh.teid(),
+            Ipv4Addr::UNSPECIFIED.to_bits(),
+            ipv6_addr.octets(),
+            false,
+            true,
+        ),
+    };
+
+    Ok((
+        ParsedGtpu {
+            local_fteid,
+            message_type,
+            has_flags: gtpuh.has_flags(),
+            has_extension_header: gtpuh.has_extension_header(),
+        },
+        offset + GtpuHdr::LEN,
+    ))
 }

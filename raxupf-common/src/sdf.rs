@@ -1,3 +1,5 @@
+use core::net::IpAddr;
+
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct SdfFilterPod {
@@ -22,17 +24,26 @@ impl SdfFilterPod {
     #[inline(always)]
     pub fn matches(
         &self,
-        src_ip: u32,
-        dst_ip: u32,
+        src_ip: &IpAddr,
+        dst_ip: &IpAddr,
         protocol: u8,
         src_port: u16,
         dst_port: u16,
     ) -> bool {
-        !((src_ip & self.src_ip_mask != self.src_ip)
-            || (dst_ip & self.dst_ip_mask != self.dst_ip)
-            || (protocol != self.protocol)
-            || (src_port > self.src_port_range().end() || src_port < self.src_port_range().start())
-            || (dst_port > self.dst_port_range().end() || dst_port < self.dst_port_range().start()))
+        match (src_ip, dst_ip) {
+            (IpAddr::V4(src_ip), IpAddr::V4(dst_ip)) => {
+                let src_ip = u32::from(*src_ip);
+                let dst_ip = u32::from(*dst_ip);
+                (self.src_ip & self.src_ip_mask) == (src_ip & self.src_ip_mask)
+                    && (self.dst_ip & self.dst_ip_mask) == (dst_ip & self.dst_ip_mask)
+                    && self.protocol == protocol
+                    && src_port >= self.src_port_range.start
+                    && src_port <= self.src_port_range.end
+                    && dst_port >= self.dst_port_range.start
+                    && dst_port <= self.dst_port_range.end
+            }
+            _ => false,
+        }
     }
 
     pub fn is_allocated(&self) -> bool {
@@ -55,7 +66,7 @@ impl SdfFilterPod {
         self.src_ip
     }
 
-    pub fn set_src_ip(&mut self, src_addr: u32) {
+    pub fn set_src_ipv4(&mut self, src_addr: u32) {
         self.src_ip = src_addr;
     }
 

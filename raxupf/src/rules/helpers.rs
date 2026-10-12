@@ -138,11 +138,11 @@ pub async fn parse_ue_ip(ctx: &PfcpContext, ue_ip_ie: &UeIpAddress) -> anyhow::R
 
     if ue_ip_ie.choose_ipv6 {
         let ue_ipv6 = ctx.allocate_ue_ipv6().await?;
-        ue_ip_pod.set_ipv6_address(ue_ipv6.octets());
+        ue_ip_pod.set_ipv6_address(ue_ipv6.to_bits());
     } else if ue_ip_ie.v6 {
         match ue_ip_ie.ipv6_address {
             Some(ipv6_addr) => {
-                ue_ip_pod.set_ipv6_address(ipv6_addr.octets());
+                ue_ip_pod.set_ipv6_address(ipv6_addr.to_bits());
             }
             None => {
                 bail!("UE IP address IE has v6 flag set but no IPv6 address provided in the IE")

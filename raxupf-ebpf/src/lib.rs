@@ -16,3 +16,4 @@ pub const GTP_VERSION: u8 = 1; // GTP-U is Version 1
 pub const MAX_EXT_HDRS: usize = 4;
 
 pub const AF_INET: u8 = 2;
+pub const AF_INET6: u8 = 10;

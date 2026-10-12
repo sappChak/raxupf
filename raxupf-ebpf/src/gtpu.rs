@@ -1,4 +1,7 @@
-use core::{mem, net::Ipv4Addr};
+use core::{
+    mem,
+    net::{IpAddr, Ipv4Addr},
+};
 
 use aya_ebpf::{helpers::generated::bpf_xdp_adjust_head, programs::XdpContext};
 use network_types::{
@@ -241,14 +244,19 @@ impl GtpuOptFields {
     }
 }
 
+#[inline(always)]
 pub fn encapsulate_into_gtpu(
     ctx: &XdpContext,
-    src_addr: Ipv4Addr,
-    dst_addr: Ipv4Addr,
+    src_addr: &IpAddr,
+    dst_addr: &IpAddr,
     dscp: u8,
     qfi: u8,
     teid: u32,
 ) -> Result<u16, ()> {
+    let (src_addr, dst_addr) = match (src_addr, dst_addr) {
+        (IpAddr::V4(src), IpAddr::V4(dst)) => (*src, *dst),
+        _ => return Err(()), // TODO: implement Ipv6
+    };
     let oiph = ptr_at::<Ipv4Hdr>(ctx, EthHdr::LEN)?;
     let oiph_len = unsafe { (*oiph).tot_len() };
 
@@ -305,24 +313,28 @@ pub fn encapsulate_into_gtpu(
 }
 
 #[inline(always)]
-pub fn update_gtpu(ctx: &XdpContext, upf_ipv4: Ipv4Addr, remote_ipv4: Ipv4Addr) -> Result<u16, ()> {
+pub fn update_gtpu(ctx: &XdpContext, upf_ip: &IpAddr, remote_ip: &IpAddr) -> Result<u16, ()> {
+    let (upf_ip, remote_ip) = match (upf_ip, remote_ip) {
+        (IpAddr::V4(upf), IpAddr::V4(remote)) => (*upf, *remote),
+        _ => return Err(()), // TODO: implement Ipv6
+    };
     // change outer source and destination ip addresses, recalcute the checksum
     let iph: &mut Ipv4Hdr = unsafe { &mut *ptr_at_mut(ctx, EthHdr::LEN)? };
     let csum = iph.checksum();
-    let new_cs = csum_replace4(csum as u32, iph.src_addr().to_bits(), upf_ipv4.to_bits());
-    iph.set_src_addr(upf_ipv4);
+    let new_cs = csum_replace4(csum as u32, iph.src_addr().to_bits(), upf_ip.to_bits());
+    iph.set_src_addr(upf_ip);
     iph.set_checksum(new_cs);
 
     let csum = iph.checksum();
-    let new_cs = csum_replace4(csum as u32, iph.dst_addr().to_bits(), remote_ipv4.to_bits());
-    iph.set_dst_addr(remote_ipv4);
+    let new_cs = csum_replace4(csum as u32, iph.dst_addr().to_bits(), remote_ip.to_bits());
+    iph.set_dst_addr(remote_ip);
     iph.set_checksum(new_cs);
 
     Ok(iph.tot_len())
 }
 
 #[inline(always)]
-pub fn decapsulate_gtpu(ctx: &XdpContext, ext_len: usize) -> Result<u16, ()> {
+pub fn decapsulate_gtpu(ctx: &XdpContext, ext_len: usize) -> Result<(u16, IpProto), ()> {
     let oeth: *const EthHdr = ptr_at(ctx, 0)?;
 
     let encap_size = Ipv4Hdr::LEN + UdpHdr::LEN + GtpuHdr::LEN + ext_len;
@@ -342,7 +354,7 @@ pub fn decapsulate_gtpu(ctx: &XdpContext, ext_len: usize) -> Result<u16, ()> {
     };
 
     let iph: &Ipv4Hdr = unsafe { &*ptr_at(ctx, EthHdr::LEN)? };
-    Ok(iph.tot_len())
+    Ok((iph.tot_len(), iph.proto().map_err(|_| ())?))
 }
 
 #[inline(always)]

@@ -1,4 +1,4 @@
-use core::{mem, net::Ipv4Addr};
+use core::{mem, net::IpAddr};
 
 use aya_ebpf::{
     bindings::{bpf_fib_lookup, xdp_action},
@@ -7,17 +7,16 @@ use aya_ebpf::{
 };
 use aya_log_ebpf::debug;
 use network_types::{
-    eth::EthHdr,
-    ip::{IpProto, Ipv4Hdr},
+    eth::{EthHdr, EtherType},
+    ip::{IpHdr, IpProto, Ipv4Hdr, Ipv6Hdr},
     tcp::TcpHdr,
     udp::UdpHdr,
 };
 use raxupf_common::fib::FibMacs;
 
 use crate::{
-    AF_INET,
-    gtpu::OUTER_HDRS_LEN_SUM,
-    parser::{ParsedIpv4, ParsedPorts},
+    AF_INET, AF_INET6,
+    parser::{ParsedIp, ParsedPorts},
 };
 
 #[inline(always)]
@@ -80,52 +79,87 @@ pub fn csum_replace4(csum: u32, from: u32, to: u32) -> u16 {
 }
 
 #[inline(always)]
-pub unsafe fn parse_l3_l4_headers(
-    ctx: &XdpContext,
-    iph: *mut Ipv4Hdr,
-    offset: usize,
-) -> Result<(ParsedIpv4, Option<ParsedPorts>), ()> {
-    let (proto, ports) = match unsafe { (*iph).proto() } {
-        Ok(IpProto::Udp) => {
-            let udph = ptr_at::<UdpHdr>(ctx, offset + Ipv4Hdr::LEN)?;
-            let ports = unsafe { ParsedPorts::new((*udph).src_port(), (*udph).dst_port()) };
-            (IpProto::Udp, Some(ports))
+pub fn u128_to_u324(x: u128) -> [u32; 4] {
+    [
+        (x >> 96) as u32,
+        (x >> 64) as u32,
+        (x >> 32) as u32,
+        x as u32,
+    ]
+}
+
+#[inline(always)]
+pub fn determine_ip_version(ctx: &XdpContext, offset: usize) -> Result<IpHdr, ()> {
+    let version = unsafe { *ptr_at::<u8>(ctx, offset)? } >> 4;
+    match version {
+        4 => {
+            let ipv4_hdr = unsafe { *ptr_at::<Ipv4Hdr>(ctx, offset)? };
+            Ok(IpHdr::V4(ipv4_hdr))
         }
-        Ok(IpProto::Tcp) => {
-            let tcph = ptr_at::<TcpHdr>(ctx, offset + Ipv4Hdr::LEN)?;
+        6 => {
+            let ipv6_hdr = unsafe { *ptr_at::<Ipv6Hdr>(ctx, offset)? };
+            Ok(IpHdr::V6(ipv6_hdr))
+        }
+        _ => Err(()),
+    }
+}
+
+#[inline(always)]
+pub fn parse_eth_hdr(ctx: &XdpContext, offset: usize) -> Result<(EtherType, usize), ()> {
+    let ethh = ptr_at::<EthHdr>(ctx, offset)?;
+    let ether_type = unsafe { (*ethh).ether_type() }.map_err(|_| ())?;
+    match ether_type {
+        EtherType::Ipv4 | EtherType::Ipv6 => Ok((ether_type, offset + EthHdr::LEN)),
+        _ => Err(()),
+    }
+}
+
+#[inline(always)]
+pub fn parse_ip_header(ctx: &XdpContext, offset: usize) -> Result<(ParsedIp, usize), ()> {
+    let iph = determine_ip_version(ctx, offset)?;
+    let (src_ip, dst_ip, proto, tot_len, offset) = match iph {
+        IpHdr::V4(ipv4_hdr) => (
+            IpAddr::V4(ipv4_hdr.src_addr()),
+            IpAddr::V4(ipv4_hdr.dst_addr()),
+            ipv4_hdr.proto().map_err(|_| ())?,
+            ipv4_hdr.tot_len() as usize,
+            offset + Ipv4Hdr::LEN,
+        ),
+        IpHdr::V6(ipv6_hdr) => (
+            IpAddr::V6(ipv6_hdr.src_addr()),
+            IpAddr::V6(ipv6_hdr.dst_addr()),
+            ipv6_hdr.next_hdr().map_err(|_| ())?,
+            ipv6_hdr.payload_len() as usize + Ipv6Hdr::LEN,
+            offset + Ipv6Hdr::LEN,
+        ),
+    };
+    Ok((ParsedIp::new(src_ip, dst_ip, proto, tot_len), offset))
+}
+
+#[inline(always)]
+pub unsafe fn parse_l4_header(
+    ctx: &XdpContext,
+    proto: IpProto,
+    offset: usize,
+) -> Result<(Option<ParsedPorts>, usize), ()> {
+    match proto {
+        IpProto::Udp => {
+            let udph = ptr_at::<UdpHdr>(ctx, offset)?;
+            let ports = unsafe { ParsedPorts::new((*udph).src_port(), (*udph).dst_port()) };
+            Ok((Some(ports), offset + UdpHdr::LEN))
+        }
+        IpProto::Tcp => {
+            let tcph = ptr_at::<TcpHdr>(ctx, offset)?;
             let ports = unsafe {
                 ParsedPorts::new(
                     u16::from_be_bytes((*tcph).source),
                     u16::from_be_bytes((*tcph).dest),
                 )
             };
-            (IpProto::Tcp, Some(ports))
+            Ok((Some(ports), offset + TcpHdr::LEN))
         }
-        Ok(IpProto::Icmp) => (IpProto::Icmp, None),
-        Ok(_) | Err(_) => {
-            debug!(ctx, "either unsupported or unknown L4 protocol");
-            return Err(());
-        }
-    };
-
-    unsafe {
-        Ok((
-            ParsedIpv4::new(
-                (*iph).src_addr(),
-                (*iph).dst_addr(),
-                proto,
-                (*iph).tot_len() as usize,
-            ),
-            ports,
-        ))
+        _ => Err(()),
     }
-}
-
-#[inline(always)]
-pub fn parse_inner_headers(ctx: &XdpContext) -> Result<(ParsedIpv4, Option<ParsedPorts>), ()> {
-    let offset = EthHdr::LEN + OUTER_HDRS_LEN_SUM;
-    let inner_ipv4 = ptr_at::<Ipv4Hdr>(ctx, offset)?;
-    unsafe { parse_l3_l4_headers(ctx, inner_ipv4 as *mut Ipv4Hdr, offset) }
 }
 
 #[inline(always)]
@@ -156,41 +190,75 @@ pub fn do_fib_lookup(
 }
 
 #[inline(always)]
+pub fn do_fib_lookup6(
+    ctx: &XdpContext,
+    fib: &mut bpf_fib_lookup,
+    proto: u8,
+    saddr: [u32; 4],
+    daddr: [u32; 4],
+    tot_len: u16,
+    ifindex: u32,
+) -> i64 {
+    fib.family = AF_INET6;
+    fib.l4_protocol = proto;
+    fib.__bindgen_anon_3.ipv6_src = saddr;
+    fib.__bindgen_anon_4.ipv6_dst = daddr;
+    fib.__bindgen_anon_1.tot_len = tot_len;
+    fib.ifindex = ifindex;
+
+    unsafe {
+        bpf_fib_lookup(
+            ctx.ctx as *mut _,
+            fib,
+            core::mem::size_of_val(fib) as i32,
+            0, // perform standard lookup (ip route get)
+        )
+    }
+}
+
+#[inline(always)]
 pub fn get_fib_macs(
     ctx: &XdpContext,
-    src_ip: Ipv4Addr,
-    dst_ip: Ipv4Addr,
+    src_ip: &IpAddr,
+    dst_ip: &IpAddr,
     proto: IpProto,
     tot_len: u16,
     ingress_ifindex: u32,
 ) -> Option<FibMacs> {
-    // lookup requires network order for IP addresses
-    let src_ip = u32::to_be(src_ip.to_bits());
-    let dst_ip = u32::to_be(dst_ip.to_bits());
-
     let mut fib: bpf_fib_lookup = unsafe { core::mem::zeroed() };
 
-    let rc = do_fib_lookup(
-        ctx,
-        &mut fib,
-        proto as u8,
-        src_ip,
-        dst_ip,
-        tot_len,
-        ingress_ifindex,
-    );
+    let rc = match (src_ip, dst_ip) {
+        (IpAddr::V4(src_ipv4), IpAddr::V4(dst_ipv4)) => {
+            // // lookup requires network order for IP addresses
+            let src_ip = u32::to_be(src_ipv4.to_bits());
+            let dst_ip = u32::to_be(dst_ipv4.to_bits());
+            do_fib_lookup(
+                ctx,
+                &mut fib,
+                proto as u8,
+                src_ip,
+                dst_ip,
+                tot_len,
+                ingress_ifindex,
+            )
+        }
+        (IpAddr::V6(src_ipv6), IpAddr::V6(dst_ipv6)) => {
+            let src_ip = u128_to_u324(u128::to_be(src_ipv6.to_bits()));
+            let dst_ip = u128_to_u324(u128::to_be(dst_ipv6.to_bits()));
+            do_fib_lookup6(
+                ctx,
+                &mut fib,
+                proto as u8,
+                src_ip,
+                dst_ip,
+                tot_len,
+                ingress_ifindex,
+            )
+        }
+        _ => return None,
+    };
 
     if rc != 0 {
-        debug!(
-            ctx,
-            "fib lookup failed for src_ip: {}, dst_ip: {}, proto: {}, tot_len: {}, ingress_ifindex: {}, rc: {}",
-            src_ip,
-            dst_ip,
-            proto as u8,
-            tot_len,
-            ingress_ifindex,
-            rc
-        );
         return None;
     }
 
@@ -208,15 +276,15 @@ pub unsafe fn rewrite_macs(eth_src_addr: *mut [u8; 6], eth_dst_addr: *mut [u8; 6
 #[inline(always)]
 pub fn route_packet_l2(
     ctx: &XdpContext,
-    src_ip: Ipv4Addr,
-    dst_ip: Ipv4Addr,
+    src_ip: &IpAddr,
+    dst_ip: &IpAddr,
     proto: IpProto,
     tot_len: u16,
     ingress_ifindex: u32,
 ) -> Result<u32, ()> {
     debug!(
         ctx,
-        "routing packet {:i} -> {:i} with tot len {}", src_ip, dst_ip, tot_len
+        "routing packet {:i} -> {:i} with tot len {}", *src_ip, *dst_ip, tot_len
     );
 
     let ethh = ptr_at_mut::<EthHdr>(ctx, 0)?;

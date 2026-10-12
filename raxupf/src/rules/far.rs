@@ -24,13 +24,19 @@ pub fn create_far_rule(received_far: CreateFar, session: &mut PfcpSession) -> an
         if let Some(ohc) = fp.outer_header_creation {
             let teid = ohc.teid.unwrap();
             far_info.set_teid(teid.value());
-            let remote_ip = ohc.ipv4_address.unwrap();
-            far_info.set_remote_ipv4(remote_ip.to_bits());
+            // TODO: do not hope for the best
+            if let Some(remote_ipv4) = ohc.ipv4_address {
+                far_info.set_remote_ipv4(remote_ipv4.to_bits());
+            }
+            if let Some(remote_ipv6) = ohc.ipv6_address {
+                far_info.set_remote_ipv6(remote_ipv6.to_bits());
+            }
             let flags = ohc_description_to_flags(ohc.description);
             far_info.set_ohc(flags);
         }
     }
 
+    far_info.set_allocated(true);
     session.insert_far(far_id, far_info)
 }
 

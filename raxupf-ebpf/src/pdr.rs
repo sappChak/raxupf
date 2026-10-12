@@ -1,4 +1,4 @@
-use core::net::Ipv4Addr;
+use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use aya_ebpf::{bindings::xdp_action, programs::XdpContext};
 use aya_log_ebpf::{debug, warn};
@@ -26,16 +26,16 @@ fn sdf_matches(pdi: &PdiPod, packet_ctx: &PacketContext) -> bool {
         _ => return false,
     };
 
-    let (src_ip, dst_ip, protocol, src_port, dst_port) = match packet_ctx.inner() {
-        Some(inner) => {
-            let (sp, dp) = match &inner.ports {
+    let (src_ip, dst_ip, protocol, src_port, dst_port) = match packet_ctx.gtp() {
+        Some(gtp) => {
+            let (sp, dp) = match &gtp.ports {
                 Some(ports) => (ports.src_port(), ports.dst_port()),
                 None => (0, 0),
             };
             (
-                inner.ipv4.src_ipv4().to_bits(),
-                inner.ipv4.dst_ipv4().to_bits(),
-                inner.ipv4.protocol().into(),
+                gtp.ip.src_ip(),
+                gtp.ip.dst_ip(),
+                gtp.ip.proto().into(),
                 sp,
                 dp,
             )
@@ -45,18 +45,12 @@ fn sdf_matches(pdi: &PdiPod, packet_ctx: &PacketContext) -> bool {
             if swap {
                 return false;
             }
-            let ip = packet_ctx.ipv4();
+            let ip = packet_ctx.ip();
             let (sp, dp) = match &packet_ctx.ports() {
                 Some(ports) => (ports.src_port(), ports.dst_port()),
                 None => (0, 0),
             };
-            (
-                ip.src_ipv4().to_bits(),
-                ip.dst_ipv4().to_bits(),
-                ip.protocol().into(),
-                sp,
-                dp,
-            )
+            (ip.src_ip(), ip.dst_ip(), ip.proto().into(), sp, dp)
         }
     };
 
@@ -76,22 +70,46 @@ fn sdf_matches(pdi: &PdiPod, packet_ctx: &PacketContext) -> bool {
     false
 }
 
+fn ue_ip_matches(pdi: &PdiPod, ue_ip: &IpAddr) -> bool {
+    if !pdi.pdi_mask().contains(PdiMask::UE_IP) {
+        return true;
+    }
+    match ue_ip {
+        IpAddr::V4(ue_ipv4) => {
+            if pdi.ue_ip_address().is_v4()
+                && pdi.ue_ip_address().ipv4_address() != ue_ipv4.to_bits()
+            {
+                return false;
+            }
+        }
+        IpAddr::V6(ue_ipv6) => {
+            if pdi.ue_ip_address().is_v6()
+                && pdi.ue_ip_address().ipv6_address() != ue_ipv6.to_bits()
+            {
+                return false;
+            }
+        }
+    };
+    true
+}
+
 fn pdi_matches(pdi: &PdiPod, packet_ctx: &PacketContext) -> bool {
-    if let Some(inner) = packet_ctx.inner() {
+    if let Some(gtp) = packet_ctx.gtp() {
         let ue_ip = match pdi.source_interface() {
             SourceInterface::Access => {
-                inner.ipv4.src_ipv4().to_bits() // packet is coming from the gNB over N3
+                gtp.ip.src_ip() // packet is coming from the gNB over N3
             }
             SourceInterface::Core => {
-                inner.ipv4.dst_ipv4().to_bits() // packet is coming from the anchor UPF over N9
+                gtp.ip.dst_ip() // packet is coming from the anchor UPF over N9
             }
             _ => return false,
         };
 
-        if (pdi.pdi_mask().contains(PdiMask::F_TEID) && pdi.fteid() != inner.gtpu.local_fteid)
-            || (pdi.pdi_mask().contains(PdiMask::UE_IP)
-                && pdi.ue_ip_address().ipv4_address() != ue_ip)
-        {
+        if pdi.pdi_mask().contains(PdiMask::F_TEID) && pdi.fteid() != gtp.gtpu.local_fteid {
+            return false;
+        }
+
+        if !ue_ip_matches(pdi, ue_ip) {
             return false;
         }
     } else {
@@ -99,8 +117,7 @@ fn pdi_matches(pdi: &PdiPod, packet_ctx: &PacketContext) -> bool {
         if !matches!(pdi.source_interface(), SourceInterface::Core) {
             return false;
         }
-        let ue_ip = packet_ctx.dst_ipv4().to_bits();
-        if pdi.pdi_mask().contains(PdiMask::UE_IP) && pdi.ue_ip_address().ipv4_address() != ue_ip {
+        if !ue_ip_matches(pdi, packet_ctx.dst_ip()) {
             return false;
         }
     };
@@ -145,15 +162,33 @@ pub fn process_pdrs(
             }
         };
 
-        let tunnelled = packet_ctx.inner().is_some();
-        let ohr_gtpu = pdr.ohr().contains(OuterHeaderRemovalFlags::GTPU_UDP_IPV4);
-        let ohc_gtpu = far.ohc().contains(OhcFlags::GTPU_UDP_IPV4);
+        let tunnelled = packet_ctx.gtp().is_some();
+        let ohr_gtpu = pdr.ohr().contains(
+            OuterHeaderRemovalFlags::GTPU_UDP_IPV4 | OuterHeaderRemovalFlags::GTPU_UDP_IPV6,
+        );
+        let ohc_gtpu = far
+            .ohc()
+            .contains(OhcFlags::GTPU_UDP_IPV4 | OhcFlags::GTPU_UDP_IPV6);
 
         // TODO: check whether FAR destination interface matches these decisions
-        let action = match (tunnelled, ohr_gtpu, ohc_gtpu) {
-            (true, true, true) => PdrAction::Forward,
-            (true, true, false) => PdrAction::Remove,
-            (false, false, true) => PdrAction::Create,
+        let (action, remote_ip) = match (tunnelled, ohr_gtpu, ohc_gtpu) {
+            (true, true, true) => {
+                let remote_ip = if pdr.ohr().contains(OuterHeaderRemovalFlags::GTPU_UDP_IPV4) {
+                    IpAddr::V4(Ipv4Addr::from_bits(far.remote_ipv4()))
+                } else {
+                    IpAddr::V6(Ipv6Addr::from_bits(far.remote_ipv6()))
+                };
+                (PdrAction::Forward, remote_ip)
+            }
+            (true, true, false) => (PdrAction::Remove, IpAddr::V4(Ipv4Addr::UNSPECIFIED)),
+            (false, false, true) => {
+                let remote_ip = if pdr.ohr().contains(OuterHeaderRemovalFlags::GTPU_UDP_IPV4) {
+                    IpAddr::V4(Ipv4Addr::from_bits(far.remote_ipv4()))
+                } else {
+                    IpAddr::V6(Ipv6Addr::from_bits(far.remote_ipv6()))
+                };
+                (PdrAction::Create, remote_ip)
+            }
             _ => {
                 debug!(
                     ctx,
@@ -198,13 +233,8 @@ pub fn process_pdrs(
             }
         }
 
-        return Ok(ParsedPdr::new(
-            far.teid(),
-            qfi,
-            far.dscp(),
-            Ipv4Addr::from(far.remote_ipv4()),
-            action,
-        ));
+        let parsed_pdr = ParsedPdr::new(far.teid(), qfi, far.dscp(), remote_ip, action);
+        return Ok(parsed_pdr);
     }
 
     Err(xdp_action::XDP_DROP) // no PDR -> drop the packet

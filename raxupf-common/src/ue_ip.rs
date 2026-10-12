@@ -4,11 +4,11 @@ pub struct UeIpPod {
     v4: bool,
     v6: bool,
     ipv4_address: u32,
-    ipv6_address: [u8; 16],
+    ipv6_address: u128,
 }
 
 impl UeIpPod {
-    pub fn new(ipv4_address: u32, ipv6_address: [u8; 16], v4: bool, v6: bool) -> Self {
+    pub fn new(ipv4_address: u32, ipv6_address: u128, v4: bool, v6: bool) -> Self {
         Self {
             v4,
             v6,
@@ -34,11 +34,11 @@ impl UeIpPod {
         self.ipv4_address = ipv4_address;
     }
 
-    pub fn ipv6_address(&self) -> [u8; 16] {
+    pub fn ipv6_address(&self) -> u128 {
         self.ipv6_address
     }
 
-    pub fn set_ipv6_address(&mut self, ipv6_address: [u8; 16]) {
+    pub fn set_ipv6_address(&mut self, ipv6_address: u128) {
         self.v6 = true;
         self.ipv6_address = ipv6_address;
     }

@@ -44,6 +44,7 @@ pub struct FarInfo {
     dscp: u8,
     teid: u32,
     remote_ipv4: u32,
+    remote_ipv6: u128,
     ohc: OhcFlags,
     allocated: bool,
 }
@@ -95,6 +96,14 @@ impl FarInfo {
 
     pub fn set_remote_ipv4(&mut self, remote_ipv4: u32) {
         self.remote_ipv4 = remote_ipv4;
+    }
+
+    pub fn remote_ipv6(&self) -> u128 {
+        self.remote_ipv6
+    }
+
+    pub fn set_remote_ipv6(&mut self, remote_ipv6: u128) {
+        self.remote_ipv6 = remote_ipv6;
     }
 
     pub fn ohc(&self) -> OhcFlags {
