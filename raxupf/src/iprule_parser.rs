@@ -1,5 +1,5 @@
 use std::{
-    net::{IpAddr, Ipv4Addr},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
     str::FromStr,
 };
 
@@ -16,6 +16,7 @@ use winnow::{
 
 const UDP: u8 = 17;
 const TCP: u8 = 6;
+const IPV6_ICMP: u8 = 58;
 
 #[derive(Debug, PartialEq, Eq)]
 enum Action {
@@ -37,6 +38,7 @@ enum Protocol {
     Any,
     Tcp,
     Udp,
+    Ipv6Icmp,
     Unknown,
 }
 
@@ -79,6 +81,7 @@ fn parse_protocol(input: &mut &str) -> Result<Protocol> {
         match proto {
             TCP => return Ok(Protocol::Tcp),
             UDP => return Ok(Protocol::Udp),
+            IPV6_ICMP => return Ok(Protocol::Ipv6Icmp),
             _ => return Ok(Protocol::Unknown),
         }
     }
@@ -99,7 +102,14 @@ fn parse_address(input: &mut &str) -> Result<Addr> {
     ))
     .parse_next(input)?
     {
-        let ip = IpAddr::V4(Ipv4Addr::from_str(ip).unwrap());
+        let ip = if let Ok(ipv4) = Ipv4Addr::from_str(ip) {
+            IpAddr::V4(ipv4)
+        } else if let Ok(ipv6) = Ipv6Addr::from_str(ip) {
+            IpAddr::V6(ipv6)
+        } else {
+            debug!("Invalid IP address: {}", ip);
+            return Ok(Addr::Any);
+        };
         let prefix = prefix.parse::<u32>().unwrap();
         return Ok(Addr::IpAddrPrefix(ip, prefix));
     }
@@ -159,6 +169,9 @@ pub fn parse_sdf_filter(sdf: &SdfFilter) -> anyhow::Result<SdfFilterPod> {
         Ok(Protocol::Udp) => {
             sdf_filter.set_protocol(UDP);
         }
+        Ok(Protocol::Ipv6Icmp) => {
+            sdf_filter.set_protocol(IPV6_ICMP);
+        }
         Ok(_) | Err(_) => bail!("SDF flow description must contain a valid protocol after 'out'"),
     }
 
@@ -172,15 +185,19 @@ pub fn parse_sdf_filter(sdf: &SdfFilter) -> anyhow::Result<SdfFilterPod> {
     match parse_address.parse_next(flow_description) {
         Ok(Addr::Any | Addr::Assigned) => {}
         Ok(Addr::IpAddr(IpAddr::V4(ip))) => {
-            sdf_filter.set_src_ip(ip.to_bits());
-            sdf_filter.set_src_ip_mask(32);
+            sdf_filter.src_ip.set_v4(ip.to_bits(), 32);
         }
-        Ok(Addr::IpAddrPrefix(IpAddr::V4(ip), prefix)) => {
-            sdf_filter.set_src_ip(ip.to_bits());
-            sdf_filter.set_src_ip_mask(prefix);
+        Ok(Addr::IpAddr(IpAddr::V6(ip))) => {
+            sdf_filter.src_ip.set_v6(ip.to_bits(), 128);
         }
-        Ok(_) | Err(_) => {
-            bail!("SDF flow description must contain a valid source address after 'from'")
+        Ok(Addr::IpAddrPrefix(IpAddr::V6(ip), mask)) => {
+            sdf_filter.src_ip.set_v6(ip.to_bits(), mask as u128);
+        }
+        Ok(Addr::IpAddrPrefix(IpAddr::V4(ip), mask)) => {
+            sdf_filter.src_ip.set_v4(ip.to_bits(), mask);
+        }
+        Err(_) => {
+            bail!("SDF flow description must contain a valid source IP address after 'from'")
         }
     }
 
@@ -204,15 +221,19 @@ pub fn parse_sdf_filter(sdf: &SdfFilter) -> anyhow::Result<SdfFilterPod> {
     match parse_address.parse_next(flow_description) {
         Ok(Addr::Any | Addr::Assigned) => {}
         Ok(Addr::IpAddr(IpAddr::V4(ip))) => {
-            sdf_filter.set_dst_ip(ip.to_bits());
-            sdf_filter.set_dst_ip_mask(32);
+            sdf_filter.dst_ip.set_v4(ip.to_bits(), 32);
         }
-        Ok(Addr::IpAddrPrefix(IpAddr::V4(ip), prefix)) => {
-            sdf_filter.set_dst_ip(ip.to_bits());
-            sdf_filter.set_dst_ip_mask(prefix);
+        Ok(Addr::IpAddr(IpAddr::V6(ip))) => {
+            sdf_filter.dst_ip.set_v6(ip.to_bits(), 128);
         }
-        Ok(_) | Err(_) => {
-            bail!("SDF flow description must contain a valid destination address after 'to'")
+        Ok(Addr::IpAddrPrefix(IpAddr::V6(ip), mask)) => {
+            sdf_filter.dst_ip.set_v6(ip.to_bits(), mask as u128);
+        }
+        Ok(Addr::IpAddrPrefix(IpAddr::V4(ip), mask)) => {
+            sdf_filter.dst_ip.set_v4(ip.to_bits(), mask);
+        }
+        Err(_) => {
+            bail!("SDF flow description must contain a valid destination IP address after 'to'")
         }
     }
 
@@ -293,6 +314,13 @@ mod tests {
             ip,
             Addr::IpAddr(IpAddr::V4(Ipv4Addr::new(192, 168, 168, 104)))
         );
+
+        let mut flow_description = "ff02::2/128 ";
+        let ip = parse_address.parse_next(&mut flow_description).unwrap();
+        assert_eq!(
+            ip,
+            Addr::IpAddrPrefix(IpAddr::V6(Ipv6Addr::from_str("ff02::2").unwrap()), 128)
+        );
     }
 
     #[test]
@@ -325,11 +353,22 @@ mod tests {
 
         let mut expected_sdf = SdfFilterPod::default();
         expected_sdf.set_protocol(TCP);
-        expected_sdf.set_src_ip(Ipv4Addr::new(192, 168, 1, 10).to_bits());
+        expected_sdf
+            .src_ip
+            .set_v4(Ipv4Addr::new(192, 168, 1, 10).to_bits(), 32);
         expected_sdf.set_src_port_range(PortRange::new(80, 80));
         expected_sdf.set_dst_port_range(PortRange::new(10000, 20000));
         assert_eq!(expected_sdf, sdf_filter);
 
-        // permit out ip from 10.60.0.0/16 to any
+        let sdf = SdfFilter {
+            flow_description: "permit out 58 from ff02::2/128 to assigned".to_string(),
+        };
+        let sdf_filter = parse_sdf_filter(&sdf).unwrap();
+        let mut expected_sdf = SdfFilterPod::default();
+        expected_sdf.set_protocol(IPV6_ICMP);
+        expected_sdf
+            .src_ip
+            .set_v6(Ipv6Addr::from_str("ff02::2").unwrap().to_bits(), 128);
+        assert_eq!(expected_sdf, sdf_filter);
     }
 }
