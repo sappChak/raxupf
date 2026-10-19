@@ -19,3 +19,6 @@ pub const PDR_MAP_SIZE: usize = 10;
 
 pub const PROG_GTP: u32 = 0;
 pub const PROG_N6: u32 = 1;
+
+pub const V4: u8 = 4;
+pub const V6: u8 = 6;

@@ -8,10 +8,10 @@ use std::{
 use anyhow::bail;
 use aya::Ebpf;
 use log::{debug, info};
-use raxupf_common::{PDR_MAP_SIZE, pdr::PdrInfo};
+use raxupf_common::{PDR_MAP_SIZE, PROG_GTP, PROG_N6, pdr::PdrInfo};
 use rs_pfcp::message::{
-    AssociationSetupRequest, HeartbeatRequest, Message, MsgType, SessionEstablishmentRequest,
-    SessionModificationRequest,
+    AssociationSetupRequest, HeartbeatRequest, Message, MsgType, SessionDeletionRequest,
+    SessionEstablishmentRequest, SessionModificationRequest,
 };
 use tokio::{
     net::UdpSocket,
@@ -19,7 +19,7 @@ use tokio::{
 };
 
 use crate::{
-    BpfMaps,
+    AyaArray, BpfMaps,
     association::PfcpAssociation,
     configuration::config::Configuration,
     handlers::{
@@ -51,6 +51,10 @@ impl PfcpContext {
         let local_addr = format!("{}:{}", configuration.pfcp.local_addr.clone(), PFCP_PORT)
             .parse::<SocketAddr>()?;
         debug!("binding PFCP server to {local_addr}");
+        let gtpu_addr = configuration.gtpu.ipv4_addr.parse::<Ipv4Addr>()?;
+        let mut array = AyaArray::try_from(ebpf.take_map("INT_IPS_V4").unwrap())?;
+        array.set(PROG_GTP, gtpu_addr.to_bits(), 0)?;
+        array.set(PROG_N6, gtpu_addr.to_bits(), 0)?;
 
         Ok(Arc::new(Self {
             socket: UdpSocket::bind(local_addr).await?,
@@ -60,7 +64,7 @@ impl PfcpContext {
             associations: RwLock::new(HashMap::new()),
             sessions: RwLock::new(HashMap::new()),
             maps: BpfMaps::new(ebpf)?,
-            gtp_addr_v4: configuration.gtpu.ipv4_addr.parse::<Ipv4Addr>()?,
+            gtp_addr_v4: gtpu_addr,
             gtp_addr_v6: None,
             resource_manager: Mutex::new(ResourceManager::new()),
         }))
@@ -207,42 +211,51 @@ pub async fn handle_messages(ctx: Arc<PfcpContext>) -> anyhow::Result<()> {
     let mut buf = [0; 4096];
 
     tokio::task::spawn(async move {
-        while let Ok((len, addr)) = ctx.socket.recv_from(&mut buf).await {
-            debug!("{:?} bytes received from {:?}", len, addr);
-            match rs_pfcp::message::parse(&buf[..len]) {
+        while let Ok((len, cp_addr)) = ctx.socket.recv_from(&mut buf).await {
+            debug!("{:?} bytes received from {:?}", len, cp_addr);
+            let res_bytes = match rs_pfcp::message::parse(&buf[..len]) {
                 Ok(msg) => match msg.msg_type() {
                     MsgType::AssociationSetupRequest => {
-                        debug!("incoming association setup request from {:?}", addr);
+                        debug!("incoming association setup request from {:?}", cp_addr);
                         let req = AssociationSetupRequest::unmarshal(&buf[..len]).unwrap();
-                        handle_association_setup_request(&ctx, &req, addr)
+                        handle_association_setup_request(&ctx, &req, cp_addr)
                             .await
                             .unwrap()
+                            .marshal()
                     }
                     MsgType::HeartbeatRequest => {
                         let req = HeartbeatRequest::unmarshal(&buf[..len]).unwrap();
-                        handle_hearbeat_request(&ctx, &req, addr).await.unwrap()
+                        handle_hearbeat_request(&ctx, &req).await.unwrap().marshal()
                     }
                     MsgType::SessionEstablishmentRequest => {
-                        debug!("incoming session establishment request from {:?}", addr);
+                        debug!("incoming session establishment request from {:?}", cp_addr);
                         let req = SessionEstablishmentRequest::unmarshal(&buf[..len]).unwrap();
-                        handle_session_establishment_request(&ctx, &req, addr)
+                        handle_session_establishment_request(&ctx, &req, cp_addr)
                             .await
-                            .unwrap();
+                            .unwrap()
+                            .marshal()
                     }
                     MsgType::SessionModificationRequest => {
                         debug!("incoming session modification request");
                         let req = SessionModificationRequest::unmarshal(&buf[..len]).unwrap();
-                        handle_session_modification_request(&ctx, &req, addr)
+                        handle_session_modification_request(&ctx, &req, cp_addr)
                             .await
-                            .unwrap();
+                            .unwrap()
+                            .marshal()
                     }
                     MsgType::SessionDeletionRequest => {
+                        let _req = SessionDeletionRequest::unmarshal(&buf[..len]).unwrap();
                         todo!()
                     }
-                    _ => debug!("unsupported message type received"),
+                    _ => {
+                        debug!("unsupported message type received");
+                        continue;
+                    }
                 },
                 Err(_) => todo!(),
-            }
+            };
+
+            ctx.send_response(&res_bytes, cp_addr).await.unwrap();
         }
     });
 

@@ -7,12 +7,14 @@ pub mod configuration;
 pub mod handlers;
 pub mod heartbeat;
 pub mod iprule_parser;
+pub mod loader;
 pub mod pfcp;
 pub mod resource_manager;
 pub mod rules;
 pub mod session;
 
 type AyaHashMap<K, V> = aya::maps::HashMap<aya::maps::MapData, K, V>;
+type AyaArray<V> = aya::maps::Array<aya::maps::MapData, V>;
 
 pub type FarMap = AyaHashMap<u32, FarInfo>;
 
@@ -22,11 +24,16 @@ pub type UrrMap = AyaHashMap<u32, UrrInfo>;
 
 pub type UplinkPdrMap = AyaHashMap<u32, [PdrInfo; PDR_MAP_SIZE]>;
 
-pub type DownlinkPdrMap = AyaHashMap<u32, [PdrInfo; PDR_MAP_SIZE]>;
+pub type DownlinkPdrMapV4 = AyaHashMap<u32, [PdrInfo; PDR_MAP_SIZE]>;
+
+pub type DownlinkPdrMapV6 = AyaHashMap<u128, [PdrInfo; PDR_MAP_SIZE]>;
+
+pub type IntAddrsV4 = AyaArray<u32>;
 
 pub struct BpfMaps {
     ul_pdrs: Mutex<UplinkPdrMap>,
-    dl_pdrs: Mutex<DownlinkPdrMap>,
+    dl_pdrs_v4: Mutex<DownlinkPdrMapV4>,
+    dl_pdrs_v6: Mutex<DownlinkPdrMapV6>,
     fars: Mutex<FarMap>,
     qers: Mutex<QerMap>,
     urrs: Mutex<UrrMap>,
@@ -35,14 +42,16 @@ pub struct BpfMaps {
 impl BpfMaps {
     pub fn new(ebpf: &mut Ebpf) -> anyhow::Result<Self> {
         let ul_pdr_map = AyaHashMap::try_from(ebpf.take_map("UL_PDR_MAP").unwrap())?;
-        let dl_pdr_map = AyaHashMap::try_from(ebpf.take_map("DL_PDR_MAP").unwrap())?;
+        let dl_pdr_map_v4 = AyaHashMap::try_from(ebpf.take_map("DL_PDR_MAP_V4").unwrap())?;
+        let dl_pdr_map_v6 = AyaHashMap::try_from(ebpf.take_map("DL_PDR_MAP_V6").unwrap())?;
         let far_map = AyaHashMap::try_from(ebpf.take_map("FAR_MAP").unwrap())?;
         let qer_map = AyaHashMap::try_from(ebpf.take_map("QER_MAP").unwrap())?;
         let urr_map = AyaHashMap::try_from(ebpf.take_map("URR_MAP").unwrap())?;
 
         Ok(Self {
             ul_pdrs: Mutex::new(ul_pdr_map),
-            dl_pdrs: Mutex::new(dl_pdr_map),
+            dl_pdrs_v4: Mutex::new(dl_pdr_map_v4),
+            dl_pdrs_v6: Mutex::new(dl_pdr_map_v6),
             fars: Mutex::new(far_map),
             qers: Mutex::new(qer_map),
             urrs: Mutex::new(urr_map),
@@ -64,20 +73,20 @@ impl BpfMaps {
         ipv4: u32,
         pdrs: [PdrInfo; PDR_MAP_SIZE],
     ) -> anyhow::Result<()> {
-        let mut dl_pdrs = self.dl_pdrs.lock().await;
+        let mut dl_pdrs = self.dl_pdrs_v4.lock().await;
         dl_pdrs.insert(ipv4, pdrs, 0)?;
         Ok(())
     }
 
-    // pub async fn insert_dl_pdr_ivp6(
-    //     &self,
-    //     ipv6: u128,
-    //     pdrs: [PdrInfo; PDR_MAP_SIZE],
-    // ) -> anyhow::Result<()> {
-    //     let mut dl_pdrs = self.dl_pdrs.lock().await;
-    //     dl_pdrs.insert(ipv6, pdrs, 0)?;
-    //     Ok(())
-    // }
+    pub async fn insert_dl_pdr_ivp6(
+        &self,
+        ipv6: u128,
+        pdrs: [PdrInfo; PDR_MAP_SIZE],
+    ) -> anyhow::Result<()> {
+        let mut dl_pdrs = self.dl_pdrs_v6.lock().await;
+        dl_pdrs.insert(ipv6, pdrs, 0)?;
+        Ok(())
+    }
 
     pub async fn insert_far(&self, far_id: u32, far: FarInfo) -> anyhow::Result<()> {
         let mut fars = self.fars.lock().await;

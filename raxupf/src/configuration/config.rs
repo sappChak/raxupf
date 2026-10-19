@@ -44,7 +44,11 @@ pub struct LoggerConfiguration {
 
 pub fn get_configuration() -> Result<Configuration, config::ConfigError> {
     let base_path = std::env::current_dir().expect("Failed to get current directory.");
-    let config_directory = base_path.join("config");
+    let config_directory = if base_path.parent().unwrap().file_name() == base_path.file_name() {
+        base_path.parent().unwrap().join("config")
+    } else {
+        base_path.join("config")
+    };
 
     let builder = config::ConfigBuilder::<DefaultState>::default()
         .add_source(config::File::from(config_directory.join("base")).required(true));
