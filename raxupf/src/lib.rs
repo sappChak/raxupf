@@ -12,6 +12,7 @@ pub mod pfcp;
 pub mod resource_manager;
 pub mod rules;
 pub mod session;
+pub mod helpers;
 
 type AyaHashMap<K, V> = aya::maps::HashMap<aya::maps::MapData, K, V>;
 type AyaArray<V> = aya::maps::Array<aya::maps::MapData, V>;
@@ -30,6 +31,7 @@ pub type DownlinkPdrMapV6 = AyaHashMap<u128, [PdrInfo; PDR_MAP_SIZE]>;
 
 pub type IntAddrsV4 = AyaArray<u32>;
 
+#[derive(Debug)]
 pub struct BpfMaps {
     ul_pdrs: Mutex<UplinkPdrMap>,
     dl_pdrs_v4: Mutex<DownlinkPdrMapV4>,

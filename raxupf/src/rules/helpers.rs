@@ -74,7 +74,7 @@ pub async fn handle_ue_ips(
 
 pub async fn parse_fteid(ctx: &PfcpContext, fteid: &Fteid) -> anyhow::Result<FteidPod> {
     if !fteid.v4 && !fteid.v6 {
-        bail!("F-TEID must have at least one of IPv4 or IPv6 address");
+        bail!("f-teid must have at least one of ipv4 or ipv6 address");
     }
     if fteid.ch {
         let mut fteid_pod = FteidPod::default();
@@ -85,7 +85,7 @@ pub async fn parse_fteid(ctx: &PfcpContext, fteid: &Fteid) -> anyhow::Result<Fte
             match ctx.gtp_addr_v6() {
                 Some(ipv6_addr) => fteid_pod.set_ipv6_address(ipv6_addr.octets()),
                 None => {
-                    bail!("F-TEID with IPv6 requested, but no IPv6 address is configured for GTP-U")
+                    bail!("f-teid with ipv6 requested, but no ipv6 address is configured for gtp-u")
                 }
             }
         }

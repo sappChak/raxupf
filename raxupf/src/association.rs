@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub struct PfcpAssociation {
     lnode_id: String,
     laddr: std::net::IpAddr,

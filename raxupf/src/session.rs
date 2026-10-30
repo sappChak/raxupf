@@ -9,18 +9,18 @@ use raxupf_common::{
     qer::QerInfo, urr::UrrInfo,
 };
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct PfcpSession {
     cp_seid: u64,
-    ue_ipv4: Option<Ipv4Addr>,          // key into eBPF DL PDRs
-    ue_ipv6: Option<Ipv6Addr>,          // key into eBPF DL PDRs
-    teid: Option<u32>,                  // key into eBPF UL PDRs
-    remote_nodeid: String,              // key to access entry in ctx.associations
-    pub ul_pdrs: HashMap<u16, PdrInfo>, // key: pdr id
-    pub dl_pdrs: HashMap<u16, PdrInfo>, // key: pdr id
-    pub fars: HashMap<u32, FarInfo>,    // key: far id
-    pub qers: HashMap<u32, QerInfo>,
-    pub urrs: HashMap<u32, UrrInfo>,
+    ue_ipv4: Option<Ipv4Addr>,      // key into eBPF DL PDRs
+    ue_ipv6: Option<Ipv6Addr>,      // key into eBPF DL PDRs
+    teid: Option<u32>,              // key into eBPF UL PDRs
+    remote_nodeid: String,          // key to access entry in ctx.associations
+    ul_pdrs: HashMap<u16, PdrInfo>, // key: pdr id
+    dl_pdrs: HashMap<u16, PdrInfo>, // key: pdr id
+    fars: HashMap<u32, FarInfo>,    // key: far id
+    qers: HashMap<u32, QerInfo>,
+    urrs: HashMap<u32, UrrInfo>,
 }
 
 impl PfcpSession {
@@ -67,6 +67,22 @@ impl PfcpSession {
         self.cp_seid
     }
 
+    pub fn get_far(&self, id: u32) -> Option<&FarInfo> {
+        self.fars.get(&id)
+    }
+
+    pub fn get_far_mut(&mut self, id: u32) -> Option<&mut FarInfo> {
+        self.fars.get_mut(&id)
+    }
+
+    pub fn get_ul_pdr_infos(&self) -> Vec<PdrInfo> {
+        self.ul_pdrs.values().cloned().collect()
+    }
+
+    pub fn get_dl_pdr_infos(&self) -> Vec<PdrInfo> {
+        self.dl_pdrs.values().cloned().collect()
+    }
+
     pub fn insert_ul_pdr(&mut self, id: u16, info: PdrInfo) -> anyhow::Result<()> {
         if self.ul_pdrs.len() >= PDR_MAP_SIZE {
             bail!("Maximum number of UL PDRs reached");
@@ -105,5 +121,37 @@ impl PfcpSession {
         }
         self.urrs.insert(id, info);
         Ok(())
+    }
+
+    pub fn fars(&self) -> &HashMap<u32, FarInfo> {
+        &self.fars
+    }
+
+    pub fn fars_mut(&mut self) -> &mut HashMap<u32, FarInfo> {
+        &mut self.fars
+    }
+
+    pub fn qers(&self) -> &HashMap<u32, QerInfo> {
+        &self.qers
+    }
+
+    pub fn urrs(&self) -> &HashMap<u32, UrrInfo> {
+        &self.urrs
+    }
+
+    pub fn ul_pdrs(&self) -> &HashMap<u16, PdrInfo> {
+        &self.ul_pdrs
+    }
+
+    pub fn dl_pdrs(&self) -> &HashMap<u16, PdrInfo> {
+        &self.dl_pdrs
+    }
+
+    pub fn ul_pdrs_mut(&mut self) -> &mut HashMap<u16, PdrInfo> {
+        &mut self.ul_pdrs
+    }
+
+    pub fn dl_pdrs_mut(&mut self) -> &mut HashMap<u16, PdrInfo> {
+        &mut self.dl_pdrs
     }
 }

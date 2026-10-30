@@ -43,7 +43,7 @@ pub fn create_far_rule(received_far: CreateFar, session: &mut PfcpSession) -> an
 pub fn update_far_rule(received_far: UpdateFar, session: &mut PfcpSession) {
     debug!("Incoming FAR update: {:?}", received_far);
     let far_id = received_far.far_id.value;
-    if let Some(far) = session.fars.get_mut(&far_id) {
+    if let Some(far) = session.get_far_mut(far_id) {
         if let Some(apply_action) = received_far.apply_action {
             let action = apply_action.octets()[0];
             far.set_action(action);

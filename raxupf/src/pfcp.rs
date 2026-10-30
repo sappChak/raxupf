@@ -23,8 +23,8 @@ use crate::{
     association::PfcpAssociation,
     configuration::config::Configuration,
     handlers::{
-        handle_association_setup_request, handle_session_establishment_request,
-        handle_session_modification_request,
+        handle_association_setup_request, handle_session_deletion_request,
+        handle_session_establishment_request, handle_session_modification_request,
     },
     heartbeat::handle_hearbeat_request,
     resource_manager::ResourceManager,
@@ -33,13 +33,14 @@ use crate::{
 
 const PFCP_PORT: u16 = 8805; // 3GPP TS 29.244 Release 17, clause 4.2.2
 
+#[derive(Debug)]
 pub struct PfcpContext {
     socket: UdpSocket,
     up_addr: SocketAddr,
     node_id: String,
     recovery_ts: SystemTime,
     associations: RwLock<HashMap<String, PfcpAssociation>>, // key: remote node_id
-    sessions: RwLock<HashMap<u64, PfcpSession>>,            // key: allocated UP TEID
+    sessions: RwLock<HashMap<u64, PfcpSession>>,            // key: allocated UP SEID
     maps: BpfMaps,
     gtp_addr_v4: Ipv4Addr,
     gtp_addr_v6: Option<Ipv6Addr>,
@@ -50,7 +51,7 @@ impl PfcpContext {
     pub async fn new(ebpf: &mut Ebpf, configuration: &Configuration) -> anyhow::Result<Arc<Self>> {
         let local_addr = format!("{}:{}", configuration.pfcp.local_addr.clone(), PFCP_PORT)
             .parse::<SocketAddr>()?;
-        debug!("binding PFCP server to {local_addr}");
+        debug!("binding pfcp server to {local_addr}");
         let gtpu_addr = configuration.gtpu.ipv4_addr.parse::<Ipv4Addr>()?;
         let mut array = AyaArray::try_from(ebpf.take_map("INT_IPS_V4").unwrap())?;
         array.set(PROG_GTP, gtpu_addr.to_bits(), 0)?;
@@ -73,43 +74,43 @@ impl PfcpContext {
     pub async fn compile_session(&self, session: PfcpSession) -> anyhow::Result<()> {
         let teid = match session.teid() {
             Some(teid) => teid,
-            None => bail!("session has no TEID, cannot compile"),
+            None => bail!("session has no teid, cannot compile"),
         };
 
-        let mut ul_pdrs: Vec<PdrInfo> = session.ul_pdrs.values().cloned().collect();
+        let mut ul_pdrs: Vec<PdrInfo> = session.get_ul_pdr_infos();
         ul_pdrs.sort_by_key(|pdr| pdr.precedence());
         let mut ul_pdr_slice = [PdrInfo::default(); PDR_MAP_SIZE];
         for (idx, ul_pdr) in ul_pdrs.iter().enumerate() {
-            info!("Inserting UL PDR: {:?}", ul_pdr);
+            info!("inserting ul pdr: {:?}", ul_pdr);
             ul_pdr_slice[idx] = *ul_pdr;
         }
 
-        let mut dl_pdrs: Vec<PdrInfo> = session.dl_pdrs.values().cloned().collect();
+        let mut dl_pdrs: Vec<PdrInfo> = session.get_dl_pdr_infos();
         dl_pdrs.sort_by_key(|pdr| pdr.precedence());
         let mut dl_pdr_slice = [PdrInfo::default(); PDR_MAP_SIZE];
         for (idx, dl_pdr) in dl_pdrs.iter().enumerate() {
-            info!("Inserting DL PDR: {:?}", dl_pdr);
+            info!("inserting dl pdr: {:?}", dl_pdr);
             dl_pdr_slice[idx] = *dl_pdr;
         }
 
-        for (far_id, far) in &session.fars {
-            info!("Inserting FAR: {:?}", far);
+        for (far_id, far) in session.fars() {
+            info!("inserting far: {:?}", far);
             self.maps.insert_far(*far_id, *far).await?;
         }
 
-        for (qer_id, qer) in &session.qers {
-            info!("Inserting QER: {:?}", qer);
+        for (qer_id, qer) in session.qers() {
+            info!("inserting qer: {:?}", qer);
             self.maps.insert_qer(*qer_id, *qer).await?;
         }
 
-        for (urr_id, urr) in &session.urrs {
-            info!("Inserting URR: {:?}", urr);
+        for (urr_id, urr) in session.urrs() {
+            info!("inserting urr: {:?}", urr);
             self.maps.insert_urr(*urr_id, *urr).await?;
         }
 
         self.maps.insert_ul_pdrs(teid, ul_pdr_slice).await?;
         match (session.ue_ipv4(), session.ue_ipv6()) {
-            (None, None) => bail!("session has no UE IP address, cannot compile"),
+            (None, None) => bail!("session has no ue ip address, cannot compile"),
             (None, Some(_)) => {
                 todo!()
             }
@@ -119,7 +120,7 @@ impl PfcpContext {
                     .await?;
             }
             (Some(_), Some(_)) => {
-                debug!("session has both IPv4 and IPv6 UE IP addresses, cannot compile");
+                debug!("session has both ipv4 and ipv6 ue ip addresses, cannot compile");
                 todo!()
             }
         };
@@ -161,13 +162,13 @@ impl PfcpContext {
 
     pub async fn insert_association(
         &self,
-        rnode_id: &str,
+        remote_nodeid: &str,
         association: PfcpAssociation,
     ) -> Option<PfcpAssociation> {
         self.associations
             .write()
             .await
-            .insert(rnode_id.to_string(), association)
+            .insert(remote_nodeid.to_string(), association)
     }
 
     pub async fn get_session(&self, key: u64) -> Option<PfcpSession> {
@@ -178,6 +179,11 @@ impl PfcpContext {
     pub async fn insert_session(&self, lseid: u64, session: PfcpSession) {
         let mut sessions = self.sessions.write().await;
         sessions.insert(lseid, session);
+    }
+
+    pub async fn delete_session(&self, lseid: u64) {
+        let mut sessions = self.sessions.write().await;
+        sessions.remove(&lseid);
     }
 
     pub async fn send_response(&self, bytes: &[u8], to: SocketAddr) -> anyhow::Result<()> {
@@ -230,7 +236,7 @@ pub async fn handle_messages(ctx: Arc<PfcpContext>) -> anyhow::Result<()> {
                     MsgType::SessionEstablishmentRequest => {
                         debug!("incoming session establishment request from {:?}", cp_addr);
                         let req = SessionEstablishmentRequest::unmarshal(&buf[..len]).unwrap();
-                        handle_session_establishment_request(&ctx, &req, cp_addr)
+                        handle_session_establishment_request(&ctx, &req)
                             .await
                             .unwrap()
                             .marshal()
@@ -238,14 +244,17 @@ pub async fn handle_messages(ctx: Arc<PfcpContext>) -> anyhow::Result<()> {
                     MsgType::SessionModificationRequest => {
                         debug!("incoming session modification request");
                         let req = SessionModificationRequest::unmarshal(&buf[..len]).unwrap();
-                        handle_session_modification_request(&ctx, &req, cp_addr)
+                        handle_session_modification_request(&ctx, &req)
                             .await
                             .unwrap()
                             .marshal()
                     }
                     MsgType::SessionDeletionRequest => {
-                        let _req = SessionDeletionRequest::unmarshal(&buf[..len]).unwrap();
-                        todo!()
+                        let req = SessionDeletionRequest::unmarshal(&buf[..len]).unwrap();
+                        handle_session_deletion_request(&ctx, &req)
+                            .await
+                            .unwrap()
+                            .marshal()
                     }
                     _ => {
                         debug!("unsupported message type received");
@@ -260,4 +269,10 @@ pub async fn handle_messages(ctx: Arc<PfcpContext>) -> anyhow::Result<()> {
     });
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[tokio::test]
+    async fn session_is_compiled_successfully() {}
 }

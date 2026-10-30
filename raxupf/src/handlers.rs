@@ -1,9 +1,8 @@
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use anyhow::bail;
-use log::{debug, error, warn};
+use log::{debug, warn};
 use rs_pfcp::{
-    error::PfcpError,
     ie::{
         Ie, cause::CauseValue, create_far::CreateFar, create_pdr::CreatePdr, create_qer::CreateQer,
         create_urr::CreateUrr, far_id::FarId, fseid::Fseid, node_id::NodeId, pdr_id::PdrId,
@@ -11,9 +10,11 @@ use rs_pfcp::{
         update_pdr::UpdatePdr, update_qer::UpdateQer, update_urr::UpdateUrr, urr_id::UrrId,
     },
     message::{
-        AssociationSetupRequest, AssociationSetupResponse, Message, SessionEstablishmentRequest,
-        SessionEstablishmentResponse, SessionModificationRequest, SessionModificationResponse,
+        AssociationSetupRequest, AssociationSetupResponse, Message, SessionDeletionRequest,
+        SessionDeletionResponse, SessionEstablishmentRequest, SessionEstablishmentResponse,
+        SessionModificationRequest, SessionModificationResponse,
         association_setup_response::AssociationSetupResponseBuilder,
+        session_deletion_response::SessionDeletionResponseBuilder,
         session_establishment_response::SessionEstablishmentResponseBuilder,
         session_modification_response::SessionModificationResponseBuilder,
     },
@@ -38,7 +39,7 @@ pub async fn handle_association_setup_request(
 ) -> anyhow::Result<AssociationSetupResponse> {
     // message handling in accordance to 29.244, clause 6.2.6.2.2
 
-    let rnode_id = match req.node_id.parse::<NodeId>() {
+    let remote_nodeid = match req.node_id.parse::<NodeId>() {
         Ok(node_id) => match node_id {
             NodeId::IPv4(ipv4_addr) => ipv4_addr.to_string(),
             NodeId::IPv6(ipv6_addr) => ipv6_addr.to_string(),
@@ -48,19 +49,18 @@ pub async fn handle_association_setup_request(
             bail!("Error parsing remote node id");
         }
     };
-    debug!("remote node id is: {}", rnode_id);
+    debug!("remote node id is: {}", remote_nodeid);
 
-    let _recovery: std::time::SystemTime =
-        match req.recovery_time_stamp.parse::<RecoveryTimeStamp>() {
-            Ok(rec_ts) => rec_ts.timestamp,
-            Err(_) => {
-                bail!("Error parsing recovery timestamp");
-            }
-        };
+    let recovery = match req.recovery_time_stamp.parse::<RecoveryTimeStamp>() {
+        Ok(rec_ts) => rec_ts.timestamp,
+        Err(_) => {
+            bail!("Error parsing recovery timestamp");
+        }
+    };
 
     // shall store the Node ID of the CP function as the identifier of the PFCP association
-    let association = PfcpAssociation::new(rnode_id.clone(), remote_addr.ip());
-    let _ = ctx.insert_association(&rnode_id, association).await;
+    let association = PfcpAssociation::new(remote_nodeid.clone(), remote_addr.ip());
+    let _ = ctx.insert_association(&remote_nodeid, association).await;
 
     let node_id = ctx.node_id();
     let node_id = if let Ok(ip_v4) = node_id.parse::<Ipv4Addr>() {
@@ -84,7 +84,6 @@ pub async fn handle_association_setup_request(
 pub async fn handle_session_establishment_request(
     ctx: &PfcpContext,
     req: &SessionEstablishmentRequest,
-    cp_addr: SocketAddr,
 ) -> anyhow::Result<SessionEstablishmentResponse> {
     let cp_seid = match req.fseid.parse::<Fseid>() {
         Ok(fs) => *fs.seid,
@@ -182,22 +181,6 @@ pub async fn handle_session_establishment_request(
         response = response.created_pdr(created_pdr);
     }
 
-    // let response = match response_builder.marshal() {
-    //     Ok(r) => r,
-    //     Err(PfcpError::MissingMandatoryIe { ie_type, .. }) => {
-    //         error!("Missing mandatory ie {:?} - sending rejection", ie_type);
-    //         SessionEstablishmentResponseBuilder::rejected(cp_seid, req.sequence())
-    //             .node_id(ctx.local_pfcp_addr().ip())
-    //             .marshal()?
-    //     }
-    //     Err(e) => {
-    //         error!("Failed to build session establishment response: {e} - sending rejection");
-    //         SessionEstablishmentResponseBuilder::rejected(cp_seid, req.sequence())
-    //             .node_id(ctx.local_pfcp_addr().ip())
-    //             .marshal()?
-    //     }
-    // };
-
     debug!("Inserting NEW session with SEID: 0x{up_seid:016x}");
     ctx.compile_session(session.clone()).await?;
     ctx.insert_session(up_seid, session).await;
@@ -208,7 +191,6 @@ pub async fn handle_session_establishment_request(
 pub async fn handle_session_modification_request(
     ctx: &PfcpContext,
     req: &SessionModificationRequest,
-    cp_addr: SocketAddr,
 ) -> anyhow::Result<SessionModificationResponse> {
     // SMF sends SEID that was previously allocated by UPF
     let up_seid = match req.seid() {
@@ -382,14 +364,13 @@ pub async fn handle_session_modification_request(
     }
 
     if let Some(update_pdrs) = &req.update_pdrs {
-        debug!("Processing {} UpdatePdr ies", update_pdrs.len());
         for (idx, update_pdr_ie) in update_pdrs.iter().enumerate() {
             match update_pdr_ie.parse::<UpdatePdr>() {
                 Ok(received_pdr) => {
                     update_pdr_rule(received_pdr, ctx, &mut session).await?;
                 }
                 Err(_) => {
-                    bail!("Error extracting PDR info");
+                    bail!("error extracting pdr info");
                 }
             }
         }
@@ -399,9 +380,39 @@ pub async fn handle_session_modification_request(
         .created_pdrs(created_pdrs)
         .build();
 
-    debug!("Inserting UPDATED session with SEID: 0x{up_seid:016x}");
+    debug!("inserting updated session with seid: 0x{up_seid:016x}");
     ctx.compile_session(session.clone()).await?;
     ctx.insert_session(up_seid, session).await;
 
+    Ok(response)
+}
+
+pub async fn handle_session_deletion_request(
+    ctx: &PfcpContext,
+    req: &SessionDeletionRequest,
+) -> anyhow::Result<SessionDeletionResponse> {
+    // SMF sends SEID that was previously allocated by UPF
+    let up_seid = match req.seid() {
+        Some(s) => *s,
+        None => {
+            bail!("session deletion request missing seid");
+        }
+    };
+
+    let session: PfcpSession = match ctx.get_session(up_seid).await {
+        Some(session) => session,
+        None => {
+            warn!("session deletion request for non-existing session up_seid: 0x{up_seid:016x}");
+            let rejection_res = SessionDeletionResponseBuilder::new(up_seid, req.sequence())
+                .cause(CauseValue::SessionContextNotFound)
+                .build();
+            return Ok(rejection_res);
+        }
+    };
+
+    let response = SessionDeletionResponseBuilder::new(session.cp_seid(), req.sequence())
+        .cause(CauseValue::RequestAccepted)
+        .build();
+    ctx.delete_session(up_seid).await;
     Ok(response)
 }

@@ -5,6 +5,7 @@ use std::{
 
 use log::debug;
 
+#[derive(Default, Debug)]
 pub struct ResourceManager {
     teids: HashMap<u8, u32>,
 }
@@ -38,3 +39,6 @@ impl ResourceManager {
         todo!()
     }
 }
+
+#[cfg(test)]
+mod tests {}

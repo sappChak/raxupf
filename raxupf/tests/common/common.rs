@@ -1,23 +1,27 @@
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
-use raxupf::{
-    configuration::config::{Configuration, get_configuration},
-    pfcp::PfcpContext,
-};
-
-pub static CONFIGURATION: LazyLock<Configuration> = LazyLock::new(|| get_configuration().unwrap());
+use raxupf::{configuration::config::get_configuration, loader::load_ebpf, pfcp::PfcpContext};
 
 pub struct TestSetup {
     pub ctx: Arc<PfcpContext>,
+    pub _ebpf: aya::Ebpf,
 }
 
-pub async fn test_setup(ebpf: &mut aya::Ebpf) -> anyhow::Result<TestSetup> {
-    let configuration = &*CONFIGURATION;
+impl TestSetup {
+    pub fn ctx(&self) -> &PfcpContext {
+        &self.ctx
+    }
+}
+
+pub async fn spawn_test_setup() -> anyhow::Result<TestSetup> {
+    let configuration = get_configuration().unwrap();
 
     assert_eq!(configuration.pfcp.node_id, "172.20.0.1".to_string());
     assert_eq!(configuration.pfcp.local_addr, "172.20.0.1".to_string());
     assert_eq!(configuration.gtpu.mode, "generic".to_string());
 
-    let ctx = PfcpContext::new(ebpf, configuration).await?;
-    Ok(TestSetup { ctx })
+    let mut ebpf = load_ebpf().await.unwrap();
+
+    let ctx = PfcpContext::new(&mut ebpf, &configuration).await?;
+    Ok(TestSetup { ctx, _ebpf: ebpf })
 }

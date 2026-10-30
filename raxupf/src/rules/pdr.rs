@@ -1,4 +1,4 @@
-use log::{debug, error};
+use log::error;
 use raxupf_common::{
     MAX_QFI_NUM,
     pdi::{PdiMask, PdiPod},
@@ -21,7 +21,6 @@ pub async fn create_pdr_rule(
     ctx: &PfcpContext,
     session: &mut PfcpSession,
 ) -> anyhow::Result<CreatedPdr> {
-    debug!("Incoming PDR: {:?}", received_pdr);
     let pdr_id = received_pdr.pdr_id;
     let mut pdr_info = PdrInfo::new(pdr_id.value);
     pdr_info.set_pdr_id(pdr_id.value);
@@ -93,7 +92,7 @@ pub async fn create_pdr_rule(
     ) {
         (true, true) => {
             let fteid = fteid_pod_to_ie(&pdi_pod.fteid());
-            let ue_ip = ueip_pod_to_ie(&pdi_pod.ue_ip_address());
+            let ue_ip = ueip_pod_to_ie(pdi_pod.ue_ip_address());
             CreatedPdr::new(pdr_id).f_teid(fteid).ue_ip_address(ue_ip)
         }
         (true, false) => {
@@ -101,7 +100,7 @@ pub async fn create_pdr_rule(
             CreatedPdr::new(pdr_id).f_teid(fteid)
         }
         (false, true) => {
-            let ue_ip = ueip_pod_to_ie(&pdi_pod.ue_ip_address());
+            let ue_ip = ueip_pod_to_ie(pdi_pod.ue_ip_address());
             CreatedPdr::new(pdr_id).ue_ip_address(ue_ip)
         }
         (false, false) => CreatedPdr::new(pdr_id),
@@ -121,10 +120,9 @@ pub async fn update_pdr_rule(
     ctx: &PfcpContext,
     session: &mut PfcpSession,
 ) -> anyhow::Result<()> {
-    debug!("Incoming PDR update: {:?}", update_pdr);
     let pdr_id = update_pdr.pdr_id.value;
 
-    if let Some(pdr_info) = session.ul_pdrs.get_mut(&pdr_id) {
+    if let Some(pdr_info) = session.ul_pdrs_mut().get_mut(&pdr_id) {
         if let Some(precedence) = update_pdr.precedence {
             pdr_info.set_precedence(precedence.value);
         }
@@ -137,7 +135,6 @@ pub async fn update_pdr_rule(
             let mut pdi_pod = pdr_info.pdi();
 
             let _ = handle_fteid(&pdi, ctx, &mut pdi_pod).await;
-
             let _ = handle_ue_ips(&pdi, ctx, &mut pdi_pod).await;
 
             for (idx, qfi) in pdi.qfis.iter().enumerate() {
@@ -177,3 +174,21 @@ pub async fn update_pdr_rule(
 }
 
 pub fn remove_pdr_rule(pdr_id: u16) {}
+
+#[cfg(test)]
+mod tests {
+    #[tokio::test]
+    async fn session_contains_correct_ul_pdr() -> anyhow::Result<()> {
+        // // Arrange
+        // let ctx = todo!();
+        // let session = todo!();
+        // let received_pdr = todo!();
+        // let expected_pdr = todo!();
+        //
+        // // Act
+        // let created_pdr = create_pdr_rule(received_pdr, ctx, session).await?;
+        //
+        // // Assert
+        Ok(())
+    }
+}
