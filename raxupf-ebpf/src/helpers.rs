@@ -8,11 +8,12 @@ use aya_ebpf::{
 use aya_log_ebpf::debug;
 use network_types::{
     eth::{EthHdr, EtherType},
+    icmp::{Icmpv4Hdr, Icmpv6Hdr},
     ip::{IpHdr, IpProto, Ipv4Hdr, Ipv6Hdr},
     tcp::TcpHdr,
     udp::UdpHdr,
 };
-use raxupf_common::fib::FibMacs;
+use raxupf_common::{V4, V6, fib::FibMacs};
 
 use crate::{
     AF_INET, AF_INET6,
@@ -92,11 +93,11 @@ pub fn u128_to_u324(x: u128) -> [u32; 4] {
 pub fn determine_ip_version(ctx: &XdpContext, offset: usize) -> Result<IpHdr, ()> {
     let version = unsafe { *ptr_at::<u8>(ctx, offset)? } >> 4;
     match version {
-        4 => {
+        V4 => {
             let ipv4_hdr = unsafe { *ptr_at::<Ipv4Hdr>(ctx, offset)? };
             Ok(IpHdr::V4(ipv4_hdr))
         }
-        6 => {
+        V6 => {
             let ipv6_hdr = unsafe { *ptr_at::<Ipv6Hdr>(ctx, offset)? };
             Ok(IpHdr::V6(ipv6_hdr))
         }
@@ -158,6 +159,8 @@ pub unsafe fn parse_l4_header(
             };
             Ok((Some(ports), offset + TcpHdr::LEN))
         }
+        IpProto::Icmp => Ok((None, offset + Icmpv4Hdr::LEN)),
+        IpProto::Ipv6Icmp => Ok((None, offset + Icmpv6Hdr::LEN)),
         _ => Err(()),
     }
 }

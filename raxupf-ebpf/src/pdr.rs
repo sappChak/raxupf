@@ -1,12 +1,12 @@
 use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use aya_ebpf::{bindings::xdp_action, programs::XdpContext};
-use aya_log_ebpf::{debug, warn};
+use aya_log_ebpf::debug;
 use raxupf_common::{
     PDR_MAP_SIZE,
     far::{FarAction, OhcFlags},
-    pdi::{PdiMask, PdiPod, SourceInterface},
-    pdr::{OuterHeaderRemovalFlags, PdrInfo},
+    pdi::{PdiMask, PdiPod, SourceInterfacePod},
+    pdr::{OhrPod, PdrInfo},
 };
 
 use crate::{
@@ -20,11 +20,7 @@ fn sdf_matches(pdi: &PdiPod, packet_ctx: &PacketContext) -> bool {
     }
 
     // SDFs are in DL form, so for uplink (Access) swap src and dst
-    let swap = match pdi.source_interface() {
-        SourceInterface::Access => true,
-        SourceInterface::Core => false,
-        _ => return false,
-    };
+    let swap = pdi.source_interface().contains(SourceInterfacePod::ACCESS);
 
     let (src_ip, dst_ip, protocol, src_port, dst_port) = match packet_ctx.gtp() {
         Some(gtp) => {
@@ -95,14 +91,12 @@ fn ue_ip_matches(pdi: &PdiPod, ue_ip: &IpAddr) -> bool {
 
 fn pdi_matches(pdi: &PdiPod, packet_ctx: &PacketContext) -> bool {
     if let Some(gtp) = packet_ctx.gtp() {
-        let ue_ip = match pdi.source_interface() {
-            SourceInterface::Access => {
-                gtp.ip.src_ip() // packet is coming from the gNB over N3
-            }
-            SourceInterface::Core => {
-                gtp.ip.dst_ip() // packet is coming from the anchor UPF over N9
-            }
-            _ => return false,
+        let ue_ip = if pdi.source_interface().contains(SourceInterfacePod::ACCESS) {
+            gtp.ip.src_ip() // packet is coming from the gNB over N3
+        } else if pdi.source_interface().contains(SourceInterfacePod::CORE) {
+            gtp.ip.dst_ip() // packet is coming from the anchor UPF over N9
+        } else {
+            return false;
         };
 
         if pdi.pdi_mask().contains(PdiMask::F_TEID) && pdi.fteid() != gtp.gtpu.local_fteid {
@@ -114,7 +108,7 @@ fn pdi_matches(pdi: &PdiPod, packet_ctx: &PacketContext) -> bool {
         }
     } else {
         // no inner packet -> it's N6, which can only match Core-side PDRs
-        if !matches!(pdi.source_interface(), SourceInterface::Core) {
+        if !pdi.source_interface().contains(SourceInterfacePod::CORE) {
             return false;
         }
         if !ue_ip_matches(pdi, packet_ctx.dst_ip()) {
@@ -127,7 +121,7 @@ fn pdi_matches(pdi: &PdiPod, packet_ctx: &PacketContext) -> bool {
 
 #[inline(always)]
 fn is_uplink(pdi: &PdiPod) -> bool {
-    matches!(pdi.source_interface(), SourceInterface::Access)
+    pdi.source_interface().contains(SourceInterfacePod::ACCESS)
 }
 
 #[inline(always)]
@@ -152,28 +146,28 @@ pub fn process_pdrs(
                 if far.action() == FarAction::FORW {
                     far
                 } else {
-                    warn!(ctx, "unsupported FAR action, dropping");
+                    debug!(ctx, "unsupported far action, dropping");
                     return Err(xdp_action::XDP_DROP);
                 }
             }
             None => {
-                debug!(ctx, "PDR points to non-existing FAR");
+                debug!(ctx, "pdr points to non-existing far");
                 return Err(xdp_action::XDP_DROP);
             }
         };
 
         let tunnelled = packet_ctx.gtp().is_some();
-        let ohr_gtpu = pdr.ohr().contains(
-            OuterHeaderRemovalFlags::GTPU_UDP_IPV4 | OuterHeaderRemovalFlags::GTPU_UDP_IPV6,
+        let ohr_gtpu = matches!(
+            pdr.ohr(),
+            OhrPod::GTPU_UDP_IPV4 | OhrPod::GTPU_UDP_IPV6 | OhrPod::GTPU_UDP_IP
         );
-        let ohc_gtpu = far
-            .ohc()
-            .contains(OhcFlags::GTPU_UDP_IPV4 | OhcFlags::GTPU_UDP_IPV6);
+        let ohc_gtpu = far.ohc().contains(OhcFlags::GTPU_UDP_IPV4)
+            || far.ohc().contains(OhcFlags::GTPU_UDP_IPV6);
 
         // TODO: check whether FAR destination interface matches these decisions
         let (action, remote_ip) = match (tunnelled, ohr_gtpu, ohc_gtpu) {
             (true, true, true) => {
-                let remote_ip = if pdr.ohr().contains(OuterHeaderRemovalFlags::GTPU_UDP_IPV4) {
+                let remote_ip = if far.ohc().contains(OhcFlags::GTPU_UDP_IPV4) {
                     IpAddr::V4(Ipv4Addr::from_bits(far.remote_ipv4()))
                 } else {
                     IpAddr::V6(Ipv6Addr::from_bits(far.remote_ipv6()))
@@ -182,7 +176,7 @@ pub fn process_pdrs(
             }
             (true, true, false) => (PdrAction::Remove, IpAddr::V4(Ipv4Addr::UNSPECIFIED)),
             (false, false, true) => {
-                let remote_ip = if pdr.ohr().contains(OuterHeaderRemovalFlags::GTPU_UDP_IPV4) {
+                let remote_ip = if far.ohc().contains(OhcFlags::GTPU_UDP_IPV4) {
                     IpAddr::V4(Ipv4Addr::from_bits(far.remote_ipv4()))
                 } else {
                     IpAddr::V6(Ipv6Addr::from_bits(far.remote_ipv6()))
@@ -192,7 +186,7 @@ pub fn process_pdrs(
             _ => {
                 debug!(
                     ctx,
-                    "PDR/FAR outer header handling doesn't fit the packet, dropping"
+                    "pdr/far outer header handling doesn't fit the packet, dropping"
                 );
                 return Err(xdp_action::XDP_DROP);
             }
@@ -205,7 +199,7 @@ pub fn process_pdrs(
                 if qer.is_allocated() {
                     // TODO: enforce policies, implement rate limiting
                     if qer.is_closed(is_uplink) {
-                        debug!(ctx, "QER is closed, dropping");
+                        debug!(ctx, "qer is closed, dropping");
                         return Err(xdp_action::XDP_DROP);
                     }
                     if qer.has_qfi() {
@@ -219,7 +213,7 @@ pub fn process_pdrs(
         }
         // only encapsulation writes a QFI into the packet
         if matches!(action, PdrAction::Create) && !allocated_qfi {
-            debug!(ctx, "no QER with allocated QFI found, dropping");
+            debug!(ctx, "no qer with allocated qfi found, dropping");
             return Err(xdp_action::XDP_DROP);
         }
 

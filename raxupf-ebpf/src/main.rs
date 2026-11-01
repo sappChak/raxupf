@@ -69,13 +69,13 @@ fn try_raxupf(ctx: &XdpContext) -> Result<u32, ()> {
         Err(_) => return Ok(xdp_action::XDP_PASS),
     };
 
-    let (n3_ip, n9_ip) = match ether_type {
+    let (n3_ip, _n9_ip) = match ether_type {
         EtherType::Ipv4 => {
             let (n3, n9) =
                 if let (Some(n3_ipv4), Some(n9_ipv4)) = (INT_IPS_V4.get(0), INT_IPS_V4.get(1)) {
                     (Ipv4Addr::from_bits(*n3_ipv4), Ipv4Addr::from_bits(*n9_ipv4))
                 } else {
-                    debug!(ctx, "no UPF IPv4 configured, dropping");
+                    debug!(ctx, "no upf ipv4 configured, dropping");
                     return Ok(xdp_action::XDP_DROP);
                 };
             (IpAddr::V4(n3), IpAddr::V4(n9))
@@ -85,7 +85,7 @@ fn try_raxupf(ctx: &XdpContext) -> Result<u32, ()> {
                 if let (Some(n3_ipv6), Some(n9_ipv6)) = (INT_IPS_V6.get(0), INT_IPS_V6.get(1)) {
                     (Ipv6Addr::from_bits(*n3_ipv6), Ipv6Addr::from_bits(*n9_ipv6))
                 } else {
-                    debug!(ctx, "no UPF IPv6 configured, dropping");
+                    debug!(ctx, "no upf ipv6 configured, dropping");
                     return Ok(xdp_action::XDP_DROP);
                 };
             (IpAddr::V6(n3), IpAddr::V6(n9))
@@ -172,7 +172,7 @@ fn handle_n6_pkt(ctx: &XdpContext, pkt_ctx: &PacketContext) -> Result<u32, ()> {
                 }
             }
             _ => {
-                debug!(ctx, "unsupported PDR action for downlink packet, dropping");
+                debug!(ctx, "unsupported pdr action for downlink packet, dropping");
                 return Ok(xdp_action::XDP_DROP);
             }
         };
