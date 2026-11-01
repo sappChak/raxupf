@@ -60,7 +60,7 @@ pub async fn handle_ue_ips(
     let ue_ips = &pdi.ue_ip_addresses;
     let ue_ip_pod = if !ue_ips.is_empty() {
         if ue_ips.len() > 1 {
-            bail!("UE IP address list contains more than one entry, which is not supported yet");
+            bail!("ue ip address list contains more than one entry, which is not supported yet");
         }
         let ue_ip_ie = &ue_ips[0];
         let ue_ip = parse_ue_ip(ctx, ue_ip_ie).await?;
@@ -95,7 +95,7 @@ pub async fn parse_fteid(ctx: &PfcpContext, fteid: &Fteid) -> anyhow::Result<Fte
                 Ok(teid) => teid,
                 Err(e) => {
                     bail!(
-                        "Failed to allocate F-TEID with CHOOSE ID {} : {e}",
+                        "failed to allocate f-teid with choose id {} : {e}",
                         fteid.choose_id
                     );
                 }
@@ -104,7 +104,7 @@ pub async fn parse_fteid(ctx: &PfcpContext, fteid: &Fteid) -> anyhow::Result<Fte
             match ctx.allocate_local_teid().await {
                 Ok(teid) => teid,
                 Err(e) => {
-                    bail!("Failed to allocate F-TEID: {e}");
+                    bail!("failed to allocate f-teid: {e}");
                 }
             }
         };
@@ -118,7 +118,7 @@ pub async fn parse_fteid(ctx: &PfcpContext, fteid: &Fteid) -> anyhow::Result<Fte
 
 pub async fn parse_ue_ip(ctx: &PfcpContext, ue_ip_ie: &UeIpAddress) -> anyhow::Result<UeIpPod> {
     if !ue_ip_ie.v4 && !ue_ip_ie.v6 && !ue_ip_ie.choose_ipv4 && !ue_ip_ie.choose_ipv6 {
-        bail!("UE IP address IE must have at least one of IPv4 or IPv6 address or choose flag");
+        bail!("ue ip address ie must have at least one of ipv4 or ipv6 address or choose flag");
     }
 
     let mut ue_ip_pod = UeIpPod::default();
@@ -131,7 +131,7 @@ pub async fn parse_ue_ip(ctx: &PfcpContext, ue_ip_ie: &UeIpAddress) -> anyhow::R
                 ue_ip_pod.set_ipv4_address(ipv4_addr.to_bits());
             }
             None => {
-                bail!("UE IP address IE has v4 flag set but no IPv4 address provided in the IE")
+                bail!("ue ip address ie has v4 flag set but no ipv4 address provided in the ie")
             }
         }
     }
@@ -145,7 +145,7 @@ pub async fn parse_ue_ip(ctx: &PfcpContext, ue_ip_ie: &UeIpAddress) -> anyhow::R
                 ue_ip_pod.set_ipv6_address(ipv6_addr.to_bits());
             }
             None => {
-                bail!("UE IP address IE has v6 flag set but no IPv6 address provided in the IE")
+                bail!("ue ip address ie has v6 flag set but no ipv6 address provided in the ie")
             }
         }
     }

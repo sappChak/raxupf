@@ -1,6 +1,6 @@
 use log::debug;
-use raxupf_common::far::FarInfo;
-use rs_pfcp::ie::{create_far::CreateFar, update_far::UpdateFar};
+use raxupf_common::far::{DestinationInterfacePod, FarInfo};
+use rs_pfcp::ie::{create_far::CreateFar, destination_interface::Interface, update_far::UpdateFar};
 
 use crate::{rules::helpers::ohc_description_to_flags, session::PfcpSession};
 
@@ -15,7 +15,15 @@ pub fn create_far_rule(received_far: CreateFar, session: &mut PfcpSession) -> an
 
     if let Some(fp) = received_far.forwarding_parameters {
         let destination_interface = fp.destination_interface;
-        far_info.set_destination_interface(destination_interface.interface.into());
+        let destination_interface = match destination_interface.interface {
+            Interface::Access => DestinationInterfacePod::ACCESS,
+            Interface::Core => DestinationInterfacePod::CORE,
+            Interface::SgiLanN6Lan => DestinationInterfacePod::SGI_LAN_N6_LAN,
+            Interface::CpFunction => DestinationInterfacePod::CP_FUNCTION,
+            Interface::LiFunction => DestinationInterfacePod::LI_FUNCTION,
+            Interface::FiveGvnInternal => DestinationInterfacePod::FIVE_GVN_INTERNAL,
+        };
+        far_info.set_destination_interface(destination_interface);
 
         if let Some(tlm) = fp.transport_level_marking {
             far_info.set_dscp(tlm.dscp);
@@ -51,7 +59,15 @@ pub fn update_far_rule(received_far: UpdateFar, session: &mut PfcpSession) {
 
         if let Some(update_fp) = received_far.update_forwarding_parameters {
             if let Some(destination_interface) = update_fp.destination_interface {
-                far.set_destination_interface(destination_interface.interface.into());
+                let destination_interface = match destination_interface.interface {
+                    Interface::Access => DestinationInterfacePod::ACCESS,
+                    Interface::Core => DestinationInterfacePod::CORE,
+                    Interface::SgiLanN6Lan => DestinationInterfacePod::SGI_LAN_N6_LAN,
+                    Interface::CpFunction => DestinationInterfacePod::CP_FUNCTION,
+                    Interface::LiFunction => DestinationInterfacePod::LI_FUNCTION,
+                    Interface::FiveGvnInternal => DestinationInterfacePod::FIVE_GVN_INTERNAL,
+                };
+                far.set_destination_interface(destination_interface);
             }
 
             if let Some(update_tlm) = update_fp.transport_level_marking {
@@ -74,4 +90,4 @@ pub fn update_far_rule(received_far: UpdateFar, session: &mut PfcpSession) {
     }
 }
 
-pub fn remove_far_rule(far_id: u32) {}
+pub fn remove_far_rule(session: &mut PfcpSession, far_id: u32) {}

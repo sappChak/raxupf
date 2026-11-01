@@ -270,9 +270,3 @@ pub async fn handle_messages(ctx: Arc<PfcpContext>) -> anyhow::Result<()> {
 
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    #[tokio::test]
-    async fn session_is_compiled_successfully() {}
-}

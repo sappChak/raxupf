@@ -20,6 +20,10 @@ pub struct IpPod {
 }
 
 impl IpPod {
+    pub fn new(version: u8, ip: u128, mask: u128) -> Self {
+        IpPod { version, ip, mask }
+    }
+
     pub fn is_v4(&self) -> bool {
         self.version == 4
     }

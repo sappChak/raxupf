@@ -4,7 +4,7 @@ use crate::{MAX_QFI_NUM, SDF_MAP_SIZE, fteid::FteidPod, sdf::SdfFilterPod, ue_ip
 
 bitflags! {
     #[repr(transparent)]
-    #[derive(Debug, Clone, Copy)]
+    #[derive(PartialEq, Eq, Debug, Clone, Copy)]
     pub struct PdiMask: u16 {
         const F_TEID = 1 << 0;
         const UE_IP = 1 << 1;
@@ -13,37 +13,27 @@ bitflags! {
     }
 }
 
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SourceInterface {
-    Access = 0,
-    Core = 1,
-    SgiLan = 2,
-    CpFunction = 3,
-    Unknown,
-}
-
-impl From<u8> for SourceInterface {
-    fn from(v: u8) -> Self {
-        match v {
-            0 => SourceInterface::Access,
-            1 => SourceInterface::Core,
-            2 => SourceInterface::SgiLan,
-            3 => SourceInterface::CpFunction,
-            _ => SourceInterface::Unknown,
-        }
+bitflags! {
+    #[repr(transparent)]
+    #[derive(PartialEq, Eq, Debug, Clone, Copy)]
+    pub struct SourceInterfacePod: u8 {
+        const ACCESS = 1 << 0;
+        const CORE = 1 << 1;
+        const SGI_LAN = 1 << 2;
+        const CP_FUNCTION = 1 << 3;
+        const UNKNOWN = 1 << 4;
     }
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub struct PdiPod {
-    pdi_mask: PdiMask,
-    source_interface: u8,
-    fteid: FteidPod,
-    ue_ip_address: UeIpPod,
-    qfis: [u8; MAX_QFI_NUM],
-    sdfs: [SdfFilterPod; SDF_MAP_SIZE],
+    pub pdi_mask: PdiMask,
+    pub source_interface: SourceInterfacePod,
+    pub fteid: FteidPod,
+    pub ue_ip_address: UeIpPod,
+    pub qfis: [u8; MAX_QFI_NUM],
+    pub sdfs: [SdfFilterPod; SDF_MAP_SIZE],
 }
 
 impl Default for PdiPod {
@@ -56,7 +46,7 @@ impl PdiPod {
     pub fn new() -> Self {
         Self {
             pdi_mask: PdiMask::empty(),
-            source_interface: 0,
+            source_interface: SourceInterfacePod::empty(),
             fteid: FteidPod::default(),
             ue_ip_address: UeIpPod::default(),
             qfis: [0; MAX_QFI_NUM],
@@ -72,12 +62,12 @@ impl PdiPod {
         self.pdi_mask |= flag;
     }
 
-    pub fn source_interface(&self) -> SourceInterface {
-        SourceInterface::from(self.source_interface)
+    pub fn source_interface(&self) -> SourceInterfacePod {
+        self.source_interface
     }
 
-    pub fn set_source_interface(&mut self, source_interface: u8) {
-        self.source_interface = source_interface;
+    pub fn set_source_interface(&mut self, source: SourceInterfacePod) {
+        self.source_interface = source;
     }
 
     pub fn fteid(&self) -> FteidPod {

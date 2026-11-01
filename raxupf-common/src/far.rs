@@ -27,6 +27,19 @@ bitflags! {
     }
 }
 
+bitflags! {
+    #[repr(transparent)]
+    #[derive(Debug, Default, Clone, Copy)]
+    pub struct DestinationInterfacePod: u8 {
+        const ACCESS = 1 << 0;
+        const CORE = 1 << 1;
+        const SGI_LAN_N6_LAN = 1 << 2;
+        const CP_FUNCTION = 1 << 3;
+        const LI_FUNCTION = 1 << 4;
+        const FIVE_GVN_INTERNAL = 1 << 5;
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct OuterHeaderCreation {
@@ -39,7 +52,7 @@ pub struct OuterHeaderCreation {
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FarInfo {
-    destination_interface: u8,
+    destination_interface: DestinationInterfacePod,
     action: FarAction,
     dscp: u8,
     teid: u32,
@@ -58,12 +71,12 @@ impl FarInfo {
         self.allocated = allocated;
     }
 
-    pub fn destination_interface(&self) -> u8 {
+    pub fn destination_interface(&self) -> DestinationInterfacePod {
         self.destination_interface
     }
 
-    pub fn set_destination_interface(&mut self, destination_interface: u8) {
-        self.destination_interface = destination_interface;
+    pub fn set_destination_interface(&mut self, interface: DestinationInterfacePod) {
+        self.destination_interface = interface;
     }
 
     pub fn action(&self) -> FarAction {

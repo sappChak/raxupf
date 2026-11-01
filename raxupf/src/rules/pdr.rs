@@ -1,8 +1,8 @@
 use log::error;
 use raxupf_common::{
     MAX_QFI_NUM,
-    pdi::{PdiMask, PdiPod},
-    pdr::PdrInfo,
+    pdi::{PdiMask, PdiPod, SourceInterfacePod},
+    pdr::{OhrPod, PdrInfo},
 };
 use rs_pfcp::ie::{
     create_pdr::CreatePdr, created_pdr::CreatedPdr, source_interface::SourceInterfaceValue,
@@ -27,16 +27,16 @@ pub async fn create_pdr_rule(
     pdr_info.set_precedence(received_pdr.precedence.value);
 
     if let Some(ohr) = received_pdr.outer_header_removal {
-        pdr_info.set_ohr(ohr.description);
+        pdr_info.set_ohr(OhrPod::try_from(ohr.description).unwrap());
     }
 
     let mut pdi_pod = PdiPod::new();
-    let source_interface: u8 = match received_pdr.pdi.source_interface.value {
-        SourceInterfaceValue::Access => 0,
-        SourceInterfaceValue::Core => 1,
-        SourceInterfaceValue::SgiLan => 2,
-        SourceInterfaceValue::CpFunction => 3,
-        SourceInterfaceValue::Unknown => 4,
+    let source_interface = match received_pdr.pdi.source_interface.value {
+        SourceInterfaceValue::Access => SourceInterfacePod::ACCESS,
+        SourceInterfaceValue::Core => SourceInterfacePod::CORE,
+        SourceInterfaceValue::SgiLan => SourceInterfacePod::SGI_LAN,
+        SourceInterfaceValue::CpFunction => SourceInterfacePod::CP_FUNCTION,
+        SourceInterfaceValue::Unknown => SourceInterfacePod::UNKNOWN,
     };
     pdi_pod.set_source_interface(source_interface);
 
@@ -128,7 +128,7 @@ pub async fn update_pdr_rule(
         }
 
         if let Some(ohr) = update_pdr.outer_header_removal {
-            pdr_info.set_ohr(ohr.description);
+            pdr_info.set_ohr(OhrPod::try_from(ohr.description).unwrap());
         }
 
         if let Some(pdi) = update_pdr.pdi {
@@ -173,22 +173,7 @@ pub async fn update_pdr_rule(
     Ok(())
 }
 
-pub fn remove_pdr_rule(pdr_id: u16) {}
-
-#[cfg(test)]
-mod tests {
-    #[tokio::test]
-    async fn session_contains_correct_ul_pdr() -> anyhow::Result<()> {
-        // // Arrange
-        // let ctx = todo!();
-        // let session = todo!();
-        // let received_pdr = todo!();
-        // let expected_pdr = todo!();
-        //
-        // // Act
-        // let created_pdr = create_pdr_rule(received_pdr, ctx, session).await?;
-        //
-        // // Assert
-        Ok(())
-    }
+pub fn remove_pdr_rule(session: &mut PfcpSession, pdr_id: u16) {
+    // TODO: remove all allocated resources if any
+    session.remove_pdr(pdr_id);
 }

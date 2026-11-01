@@ -1,7 +1,4 @@
-use aya::{
-    maps::ProgramArray,
-    programs::Xdp,
-};
+use aya::{maps::ProgramArray, programs::Xdp};
 use log::warn;
 use raxupf_common::{PROG_GTP, PROG_N6};
 

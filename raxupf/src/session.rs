@@ -15,7 +15,7 @@ pub struct PfcpSession {
     ue_ipv4: Option<Ipv4Addr>,      // key into eBPF DL PDRs
     ue_ipv6: Option<Ipv6Addr>,      // key into eBPF DL PDRs
     teid: Option<u32>,              // key into eBPF UL PDRs
-    remote_nodeid: String,          // key to access entry in ctx.associations
+    cp_nodeid: String,              // key to access entry in ctx.associations
     ul_pdrs: HashMap<u16, PdrInfo>, // key: pdr id
     dl_pdrs: HashMap<u16, PdrInfo>, // key: pdr id
     fars: HashMap<u32, FarInfo>,    // key: far id
@@ -24,10 +24,10 @@ pub struct PfcpSession {
 }
 
 impl PfcpSession {
-    pub fn new(remote_nodeid: String, cp_seid: u64) -> Self {
+    pub fn new(cp_nodeid: String, cp_seid: u64) -> Self {
         Self {
             cp_seid,
-            remote_nodeid,
+            cp_nodeid,
             ul_pdrs: HashMap::new(),
             dl_pdrs: HashMap::new(),
             fars: HashMap::new(),
@@ -83,6 +83,14 @@ impl PfcpSession {
         self.dl_pdrs.values().cloned().collect()
     }
 
+    pub fn get_ul_pdr(&self, id: u16) -> Option<&PdrInfo> {
+        self.ul_pdrs.get(&id)
+    }
+
+    pub fn get_dl_pdr(&self, id: u16) -> Option<&PdrInfo> {
+        self.dl_pdrs.get(&id)
+    }
+
     pub fn insert_ul_pdr(&mut self, id: u16, info: PdrInfo) -> anyhow::Result<()> {
         if self.ul_pdrs.len() >= PDR_MAP_SIZE {
             bail!("Maximum number of UL PDRs reached");
@@ -97,6 +105,11 @@ impl PfcpSession {
         }
         self.dl_pdrs.insert(id, info);
         Ok(())
+    }
+
+    pub fn remove_pdr(&mut self, id: u16) {
+        self.dl_pdrs.remove(&id);
+        self.ul_pdrs.remove(&id);
     }
 
     pub fn insert_far(&mut self, id: u32, info: FarInfo) -> anyhow::Result<()> {

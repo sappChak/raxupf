@@ -12,32 +12,61 @@ bitflags! {
     }
 }
 
+// 3GPP TS 29.244 Release 17, Table 8.2.64-1: Outer Header Removal Description
 bitflags! {
     #[repr(transparent)]
-    #[derive(Debug, Default, Clone, Copy)]
-    pub struct OuterHeaderRemovalFlags: u8 {
+    #[derive(PartialEq, Eq, Debug, Default, Clone, Copy)]
+    pub struct OhrFlags: u8 {
         const GTPU_UDP_IPV4 = 1 << 0;
         const GTPU_UDP_IPV6 = 1 << 1;
         const UDP_IPV4 = 1 << 2;
         const UDP_IPV6 = 1 << 3;
         const IPV4 = 1 << 4;
         const IPV6 = 1 << 5;
-        const CTAG = 1 << 6;
-        const STAG = 1 << 7;
+        const GTPU_UDP_IP = 1 << 6;
+        // other fields are unsupported/spared
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct OhrPod(pub u8);
+
+impl OhrPod {
+    pub const GTPU_UDP_IPV4: Self = Self(0);
+    pub const GTPU_UDP_IPV6: Self = Self(1);
+    pub const UDP_IPV4: Self = Self(2);
+    pub const UDP_IPV6: Self = Self(3);
+    pub const IPV4: Self = Self(4);
+    pub const IPV6: Self = Self(5);
+    pub const GTPU_UDP_IP: Self = Self(6);
+
+    pub fn none() -> Self {
+        Self(0xFF)
+    }
+}
+
+impl TryFrom<u8> for OhrPod {
+    type Error = ();
+    fn try_from(desc: u8) -> Result<Self, Self::Error> {
+        match desc {
+            0..=6 => Ok(Self(desc)),
+            _ => Err(()),
+        }
     }
 }
 
 #[repr(C)]
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Default, Clone, Copy)]
 pub struct PdrInfo {
-    pdr_id: u16,
-    precedence: u32,
-    outer_header_removal: OuterHeaderRemovalFlags,
-    pdi: PdiPod,
-    far_id: u32,
-    qer_ids: [u32; QER_MAP_SIZE],
-    urr_ids: [u32; URR_MAP_SIZE],
-    allocated: bool,
+    pub pdr_id: u16,
+    pub precedence: u32,
+    pub outer_header_removal: OhrPod,
+    pub pdi: PdiPod,
+    pub far_id: u32,
+    pub qer_ids: [u32; QER_MAP_SIZE],
+    pub urr_ids: [u32; URR_MAP_SIZE],
+    pub allocated: bool,
 }
 
 impl PdrInfo {
@@ -45,7 +74,7 @@ impl PdrInfo {
         Self {
             pdr_id,
             precedence: 0,
-            outer_header_removal: OuterHeaderRemovalFlags::empty(),
+            outer_header_removal: OhrPod::none(),
             pdi: PdiPod::new(),
             far_id: 0,
             qer_ids: [0; QER_MAP_SIZE],
@@ -78,7 +107,7 @@ impl PdrInfo {
         self.precedence = precedence;
     }
 
-    pub fn ohr(&self) -> OuterHeaderRemovalFlags {
+    pub fn ohr(&self) -> OhrPod {
         self.outer_header_removal
     }
 
@@ -102,8 +131,8 @@ impl PdrInfo {
         &self.urr_ids
     }
 
-    pub fn set_ohr(&mut self, ohr: u8) {
-        self.outer_header_removal = OuterHeaderRemovalFlags::from_bits_truncate(ohr);
+    pub fn set_ohr(&mut self, ohr: OhrPod) {
+        self.outer_header_removal = ohr;
     }
 
     pub fn set_far_id(&mut self, value: u32) {
@@ -123,4 +152,4 @@ impl PdrInfo {
 unsafe impl aya::Pod for PdrInfo {}
 
 #[cfg(feature = "user")]
-unsafe impl aya::Pod for OuterHeaderRemovalFlags {}
+unsafe impl aya::Pod for OhrPod {}
