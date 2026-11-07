@@ -1,0 +1,18 @@
+pfcp:
+  node_id: 172.20.0.1 
+  local_addr: 172.20.0.1
+  local_port: 0
+
+gtpu:
+  mode: generic
+  iface: br-open5gs
+  ipv4_addr: 172.20.0.1
+
+api:
+  addr: 172.20.0.1
+  port: 8080
+  prefix: "/api/v1/"
+
+logger: 
+  name: raxupf
+  level: debug

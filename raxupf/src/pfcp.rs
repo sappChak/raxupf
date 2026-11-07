@@ -6,9 +6,8 @@ use std::{
 };
 
 use anyhow::bail;
-use aya::Ebpf;
 use log::{debug, info};
-use raxupf_common::{PDR_MAP_SIZE, PROG_GTP, PROG_N6, pdr::PdrInfo};
+use raxupf_common::{PDR_MAP_SIZE, pdr::PdrInfo};
 use rs_pfcp::message::{
     AssociationSetupRequest, HeartbeatRequest, Message, MsgType, SessionDeletionRequest,
     SessionEstablishmentRequest, SessionModificationRequest,
@@ -19,7 +18,7 @@ use tokio::{
 };
 
 use crate::{
-    AyaArray, BpfMaps,
+    StoreRules,
     association::PfcpAssociation,
     configuration::config::Configuration,
     handlers::{
@@ -31,9 +30,6 @@ use crate::{
     session::PfcpSession,
 };
 
-const PFCP_PORT: u16 = 8805; // 3GPP TS 29.244 Release 17, clause 4.2.2
-
-#[derive(Debug)]
 pub struct PfcpContext {
     socket: UdpSocket,
     up_addr: SocketAddr,
@@ -41,21 +37,24 @@ pub struct PfcpContext {
     recovery_ts: SystemTime,
     associations: RwLock<HashMap<String, PfcpAssociation>>, // key: remote node_id
     sessions: RwLock<HashMap<u64, PfcpSession>>,            // key: allocated UP SEID
-    maps: BpfMaps,
+    maps: Arc<dyn StoreRules + Sync + Send>,
     gtp_addr_v4: Ipv4Addr,
     gtp_addr_v6: Option<Ipv6Addr>,
     resource_manager: Mutex<ResourceManager>,
 }
 
 impl PfcpContext {
-    pub async fn new(ebpf: &mut Ebpf, configuration: &Configuration) -> anyhow::Result<Arc<Self>> {
-        let local_addr = format!("{}:{}", configuration.pfcp.local_addr.clone(), PFCP_PORT)
-            .parse::<SocketAddr>()?;
+    pub async fn new(
+        maps: Arc<dyn StoreRules + Sync + Send>,
+        configuration: &Configuration,
+    ) -> anyhow::Result<Arc<Self>> {
+        let local_addr = format!(
+            "{}:{}",
+            configuration.pfcp.local_addr.clone(),
+            configuration.pfcp.local_port
+        )
+        .parse::<SocketAddr>()?;
         debug!("binding pfcp server to {local_addr}");
-        let gtpu_addr = configuration.gtpu.ipv4_addr.parse::<Ipv4Addr>()?;
-        let mut array = AyaArray::try_from(ebpf.take_map("INT_IPS_V4").unwrap())?;
-        array.set(PROG_GTP, gtpu_addr.to_bits(), 0)?;
-        array.set(PROG_N6, gtpu_addr.to_bits(), 0)?;
 
         Ok(Arc::new(Self {
             socket: UdpSocket::bind(local_addr).await?,
@@ -64,8 +63,8 @@ impl PfcpContext {
             recovery_ts: SystemTime::now(), // indicates time when UPF was started
             associations: RwLock::new(HashMap::new()),
             sessions: RwLock::new(HashMap::new()),
-            maps: BpfMaps::new(ebpf)?,
-            gtp_addr_v4: gtpu_addr,
+            maps,
+            gtp_addr_v4: configuration.gtpu.ipv4_addr.parse::<Ipv4Addr>()?,
             gtp_addr_v6: None,
             resource_manager: Mutex::new(ResourceManager::new()),
         }))
@@ -89,26 +88,22 @@ impl PfcpContext {
         dl_pdrs.sort_by_key(|pdr| pdr.precedence());
         let mut dl_pdr_slice = [PdrInfo::default(); PDR_MAP_SIZE];
         for (idx, dl_pdr) in dl_pdrs.iter().enumerate() {
-            info!("inserting dl pdr: {:?}", dl_pdr);
             dl_pdr_slice[idx] = *dl_pdr;
         }
 
         for (far_id, far) in session.fars() {
-            info!("inserting far: {:?}", far);
-            self.maps.insert_far(*far_id, *far).await?;
+            self.maps.insert_far(*far_id, *far)?;
         }
 
         for (qer_id, qer) in session.qers() {
-            info!("inserting qer: {:?}", qer);
-            self.maps.insert_qer(*qer_id, *qer).await?;
+            self.maps.insert_qer(*qer_id, *qer)?;
         }
 
         for (urr_id, urr) in session.urrs() {
-            info!("inserting urr: {:?}", urr);
-            self.maps.insert_urr(*urr_id, *urr).await?;
+            self.maps.insert_urr(*urr_id, *urr)?;
         }
 
-        self.maps.insert_ul_pdrs(teid, ul_pdr_slice).await?;
+        self.maps.insert_ul_pdrs(teid, ul_pdr_slice)?;
         match (session.ue_ipv4(), session.ue_ipv6()) {
             (None, None) => bail!("session has no ue ip address, cannot compile"),
             (None, Some(_)) => {
@@ -116,8 +111,7 @@ impl PfcpContext {
             }
             (Some(ue_ipv4), None) => {
                 self.maps
-                    .insert_dl_pdrs_ivp4(ue_ipv4.to_bits(), dl_pdr_slice)
-                    .await?;
+                    .insert_dl_pdrs_ivp4(ue_ipv4.to_bits(), dl_pdr_slice)?;
             }
             (Some(_), Some(_)) => {
                 debug!("session has both ipv4 and ipv6 ue ip addresses, cannot compile");

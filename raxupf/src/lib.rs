@@ -1,6 +1,7 @@
+use std::sync::Mutex;
+
 use aya::Ebpf;
 use raxupf_common::{PDR_MAP_SIZE, far::FarInfo, pdr::PdrInfo, qer::QerInfo, urr::UrrInfo};
-use tokio::sync::Mutex;
 
 pub mod association;
 pub mod configuration;
@@ -14,8 +15,8 @@ pub mod resource_manager;
 pub mod rules;
 pub mod session;
 
-type AyaHashMap<K, V> = aya::maps::HashMap<aya::maps::MapData, K, V>;
-type AyaArray<V> = aya::maps::Array<aya::maps::MapData, V>;
+pub type AyaHashMap<K, V> = aya::maps::HashMap<aya::maps::MapData, K, V>;
+pub type AyaArray<V> = aya::maps::Array<aya::maps::MapData, V>;
 
 pub type FarMap = AyaHashMap<u32, FarInfo>;
 
@@ -30,6 +31,58 @@ pub type DownlinkPdrMapV4 = AyaHashMap<u32, [PdrInfo; PDR_MAP_SIZE]>;
 pub type DownlinkPdrMapV6 = AyaHashMap<u128, [PdrInfo; PDR_MAP_SIZE]>;
 
 pub type IntAddrsV4 = AyaArray<u32>;
+
+pub trait StoreRules {
+    fn insert_ul_pdrs(&self, teid: u32, pdrs: [PdrInfo; PDR_MAP_SIZE]) -> anyhow::Result<()>;
+
+    fn insert_dl_pdrs_ivp4(&self, ipv4: u32, pdrs: [PdrInfo; PDR_MAP_SIZE]) -> anyhow::Result<()>;
+
+    fn insert_dl_pdr_ivp6(&self, ipv6: u128, pdrs: [PdrInfo; PDR_MAP_SIZE]) -> anyhow::Result<()>;
+
+    fn insert_far(&self, far_id: u32, far: FarInfo) -> anyhow::Result<()>;
+
+    fn insert_qer(&self, qer_id: u32, qer: QerInfo) -> anyhow::Result<()>;
+
+    fn insert_urr(&self, urr_id: u32, urr: UrrInfo) -> anyhow::Result<()>;
+}
+
+impl StoreRules for BpfMaps {
+    fn insert_ul_pdrs(&self, teid: u32, pdrs: [PdrInfo; PDR_MAP_SIZE]) -> anyhow::Result<()> {
+        let mut ul_pdrs = self.ul_pdrs.lock().unwrap();
+        ul_pdrs.insert(teid, pdrs, 0)?;
+        Ok(())
+    }
+
+    fn insert_dl_pdrs_ivp4(&self, ipv4: u32, pdrs: [PdrInfo; PDR_MAP_SIZE]) -> anyhow::Result<()> {
+        let mut dl_pdrs = self.dl_pdrs_v4.lock().unwrap();
+        dl_pdrs.insert(ipv4, pdrs, 0)?;
+        Ok(())
+    }
+
+    fn insert_dl_pdr_ivp6(&self, ipv6: u128, pdrs: [PdrInfo; PDR_MAP_SIZE]) -> anyhow::Result<()> {
+        let mut dl_pdrs = self.dl_pdrs_v6.lock().unwrap();
+        dl_pdrs.insert(ipv6, pdrs, 0)?;
+        Ok(())
+    }
+
+    fn insert_far(&self, far_id: u32, far: FarInfo) -> anyhow::Result<()> {
+        let mut fars = self.fars.lock().unwrap();
+        fars.insert(far_id, far, 0)?;
+        Ok(())
+    }
+
+    fn insert_qer(&self, qer_id: u32, qer: QerInfo) -> anyhow::Result<()> {
+        let mut qers = self.qers.lock().unwrap();
+        qers.insert(qer_id, qer, 0)?;
+        Ok(())
+    }
+
+    fn insert_urr(&self, urr_id: u32, urr: UrrInfo) -> anyhow::Result<()> {
+        let mut urrs = self.urrs.lock().unwrap();
+        urrs.insert(urr_id, urr, 0)?;
+        Ok(())
+    }
+}
 
 #[derive(Debug)]
 pub struct BpfMaps {
@@ -58,53 +111,5 @@ impl BpfMaps {
             qers: Mutex::new(qer_map),
             urrs: Mutex::new(urr_map),
         })
-    }
-
-    pub async fn insert_ul_pdrs(
-        &self,
-        teid: u32,
-        pdrs: [PdrInfo; PDR_MAP_SIZE],
-    ) -> anyhow::Result<()> {
-        let mut ul_pdrs = self.ul_pdrs.lock().await;
-        ul_pdrs.insert(teid, pdrs, 0)?;
-        Ok(())
-    }
-
-    pub async fn insert_dl_pdrs_ivp4(
-        &self,
-        ipv4: u32,
-        pdrs: [PdrInfo; PDR_MAP_SIZE],
-    ) -> anyhow::Result<()> {
-        let mut dl_pdrs = self.dl_pdrs_v4.lock().await;
-        dl_pdrs.insert(ipv4, pdrs, 0)?;
-        Ok(())
-    }
-
-    pub async fn insert_dl_pdr_ivp6(
-        &self,
-        ipv6: u128,
-        pdrs: [PdrInfo; PDR_MAP_SIZE],
-    ) -> anyhow::Result<()> {
-        let mut dl_pdrs = self.dl_pdrs_v6.lock().await;
-        dl_pdrs.insert(ipv6, pdrs, 0)?;
-        Ok(())
-    }
-
-    pub async fn insert_far(&self, far_id: u32, far: FarInfo) -> anyhow::Result<()> {
-        let mut fars = self.fars.lock().await;
-        fars.insert(far_id, far, 0)?;
-        Ok(())
-    }
-
-    pub async fn insert_qer(&self, qer_id: u32, qer: QerInfo) -> anyhow::Result<()> {
-        let mut qers = self.qers.lock().await;
-        qers.insert(qer_id, qer, 0)?;
-        Ok(())
-    }
-
-    pub async fn insert_urr(&self, urr_id: u32, urr: UrrInfo) -> anyhow::Result<()> {
-        let mut urrs = self.urrs.lock().await;
-        urrs.insert(urr_id, urr, 0)?;
-        Ok(())
     }
 }

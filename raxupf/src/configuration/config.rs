@@ -13,11 +13,10 @@ pub struct Configuration {
 
 #[derive(serde::Deserialize)]
 pub struct PfcpConfiguration {
-    pub local_addr: String,
     pub node_id: String,
-    pub ret_timeout: String,
+    pub local_addr: String,
     #[serde(deserialize_with = "deserialize_number_from_string")]
-    pub max_ret: u32,
+    pub local_port: u16,
 }
 
 #[derive(serde::Deserialize)]

@@ -1,20 +1,18 @@
 pfcp:
-  local_addr: 127.0.0.1 # IP addr for listening
-  remote_addr: 127.0.0.1
-  node_id: 127.0.0.1 # External IP or FQDN can be reached
-  ret_timeout: 1s # retransmission timeout
-  max_ret: 3 # the max number of retransmission
+  node_id: 172.20.0.1 
+  local_addr: 172.20.0.1
+  local_port: 8805
 
 gtpu:
   mode: generic
-  iface: lo
-  ipv4_addr: 127.0.0.1
+  iface: br-open5gs
+  ipv4_addr: 172.20.0.1
 
 api:
-  addr: "0.0.0.0"
+  addr: 172.20.0.1
   port: 8080
   prefix: "/api/v1/"
 
-logger: # log output setting
+logger: 
   name: raxupf
   level: debug

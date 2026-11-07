@@ -3,7 +3,11 @@ use std::{
     str::FromStr,
 };
 
-use raxupf::{rules::pdr::create_pdr_rule, session::PfcpSession};
+use raxupf::{
+    helpers::prefix_to_ipv6_mask,
+    rules::pdr::create_pdr_rule,
+    session::PfcpSession,
+};
 use raxupf_common::{
     SDF_MAP_SIZE,
     fteid::FteidPod,
@@ -91,14 +95,18 @@ async fn session_contains_correct_ul_pdr() -> anyhow::Result<()> {
 
     let expected_sdf = SdfFilterPod {
         protocol: 58,
-        src_ip: IpPod::new(6, Ipv6Addr::from_str("ff02::2")?.to_bits(), 128),
+        src_ip: IpPod::new(
+            6,
+            Ipv6Addr::from_str("ff02::2")?.to_bits(),
+            prefix_to_ipv6_mask(128)?,
+        ),
         allocated: true,
         ..Default::default()
     };
     let mut expected_sdfs = [SdfFilterPod::default(); SDF_MAP_SIZE];
     expected_sdfs[0] = expected_sdf;
     let expected_pdi = PdiPod {
-        pdi_mask: PdiMask::F_TEID,
+        pdi_mask: PdiMask::F_TEID | PdiMask::SDF_FILTER,
         source_interface: SourceInterfacePod::CP_FUNCTION,
         fteid: FteidPod::new(
             0x500a,
@@ -120,6 +128,15 @@ async fn session_contains_correct_ul_pdr() -> anyhow::Result<()> {
     };
 
     assert_eq!(*session.get_ul_pdr(4).unwrap(), expected_pdr);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn session_contains_correct_dl_pdr() -> anyhow::Result<()> {
+    // Arrange
+    let test_setup = spawn_test_setup().await?;
+    let ctx = test_setup.ctx();
 
     Ok(())
 }
