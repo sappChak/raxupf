@@ -102,6 +102,7 @@ impl PdiPod {
     }
 
     pub fn set_sdf(&mut self, idx: usize, sdf: SdfFilterPod) {
+        self.set_flag(PdiMask::SDF_FILTER);
         self.sdfs[idx] = sdf;
     }
 }

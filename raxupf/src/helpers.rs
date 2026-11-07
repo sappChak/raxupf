@@ -12,3 +12,27 @@ pub fn nodeid_from_str(nodeid: &str) -> anyhow::Result<NodeId> {
     };
     Ok(node_id)
 }
+
+pub fn prefix_to_ipv4_mask(prefix: u8) -> anyhow::Result<u32> {
+    if prefix > 32 {
+        return Err(anyhow::anyhow!("Invalid IPv4 prefix length: {}", prefix));
+    }
+    let mask = if prefix == 0 {
+        0
+    } else {
+        (!0u32) << (32 - prefix)
+    };
+    Ok(mask)
+}
+
+pub fn prefix_to_ipv6_mask(prefix: u8) -> anyhow::Result<u128> {
+    if prefix > 128 {
+        return Err(anyhow::anyhow!("Invalid IPv6 prefix length: {}", prefix));
+    }
+    let mask = if prefix == 0 {
+        0
+    } else {
+        (!0u128) << (128 - prefix)
+    };
+    Ok(mask)
+}
