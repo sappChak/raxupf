@@ -6,6 +6,15 @@ Rust with the help of the aya crate, in accordance with Release 17 3GPP specific
 purpose behind it is to learn eBPF technology, enhance programming skills in Rust, and
 understand telco specifics. Therefore, as of now, the project doesn't make use of AI. 
 
+# TODO
+- [ ] Basic test coverage of the control plane;
+- [ ] Basic test coverage of the dataplane;
+- [ ] Ensure GTP-U (de)encapsulation is correct; 
+- [ ] Provide supported features to SMF; 
+- [ ] Implement QER, rate-limiting;
+- [ ] Implement URR;  
+- [ ] Implement scheduling (priority level);
+- [ ] Implement NAT if deployed inside a container (requires a route on host otherwise);
 
 ## License
 
