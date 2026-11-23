@@ -2,18 +2,16 @@
 
 This project implements an eBPF/XDP-based User Plane Function (UPF), written entirely in
 Rust with the help of the aya crate, in accordance with Release 17 3GPP specifications
-(29.244 (PFCP), 29.281 (GTP-U), 38.415 (PDU Session UP protocol), 23.501 (General)). The
-purpose behind it is to learn eBPF technology, enhance programming skills in Rust, and
-understand telco specifics. Therefore, as of now, the project doesn't make use of AI. 
+(29.244 (PFCP), 29.281 (GTP-U), 38.415 (PDU Session UP protocol), 23.501 (General)). 
 
 # TODO
 - [ ] Basic test coverage of the control plane;
 - [ ] Basic test coverage of the dataplane;
 - [ ] Ensure GTP-U (de)encapsulation is correct; 
-- [ ] Provide supported features to SMF; 
+- [ ] End-to-end IPv6 support;
 - [ ] Implement QER, rate-limiting;
 - [ ] Implement URR;  
-- [ ] Implement scheduling (priority level);
+- [ ] Implement QoS-based scheduling (priority level);
 - [ ] Implement NAT if deployed inside a container (requires a route on host otherwise);
 
 ## License
