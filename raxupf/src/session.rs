@@ -107,9 +107,13 @@ impl PfcpSession {
         Ok(())
     }
 
-    pub fn remove_pdr(&mut self, id: u16) {
-        self.dl_pdrs.remove(&id);
-        self.ul_pdrs.remove(&id);
+    pub fn remove_pdr(&mut self, id: u16) -> Option<PdrInfo> {
+        match (self.dl_pdrs.remove(&id), self.ul_pdrs.remove(&id)) {
+            (None, None) => None,
+            (None, Some(ul_pdr)) => Some(ul_pdr),
+            (Some(dl_pdr), None) => Some(dl_pdr),
+            (Some(_), Some(_)) => unreachable!(),
+        }
     }
 
     pub fn insert_far(&mut self, id: u32, info: FarInfo) -> anyhow::Result<()> {

@@ -5,8 +5,8 @@ use raxupf_common::{
     pdr::{OhrPod, PdrInfo},
 };
 use rs_pfcp::ie::{
-    create_pdr::CreatePdr, created_pdr::CreatedPdr, source_interface::SourceInterfaceValue,
-    update_pdr::UpdatePdr,
+    create_pdr::CreatePdr, created_pdr::CreatedPdr, failed_rule_id::FailedRuleId,
+    source_interface::SourceInterfaceValue, update_pdr::UpdatePdr,
 };
 
 use crate::{
@@ -173,7 +173,13 @@ pub async fn update_pdr_rule(
     Ok(())
 }
 
-pub fn remove_pdr_rule(session: &mut PfcpSession, pdr_id: u16) {
+pub fn remove_pdr_rule(session: &mut PfcpSession, pdr_id: u16) -> Result<(), FailedRuleId> {
     // TODO: remove all allocated resources if any
-    session.remove_pdr(pdr_id);
+    if session.remove_pdr(pdr_id).is_none() {
+        return Err(FailedRuleId::new(
+            rs_pfcp::ie::failed_rule_id::RuleIdType::Pdr,
+            pdr_id as u32,
+        ));
+    }
+    Ok(())
 }

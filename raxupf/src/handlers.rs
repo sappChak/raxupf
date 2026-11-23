@@ -207,10 +207,10 @@ pub async fn handle_session_modification_request(
             warn!(
                 "session modification request for non-existing session up_seid: 0x{up_seid:016x}"
             );
-            let rejection_res = SessionModificationResponseBuilder::new(up_seid, req.sequence())
+            let rejection = SessionModificationResponseBuilder::new(up_seid, req.sequence())
                 .cause(CauseValue::SessionContextNotFound)
                 .build();
-            return Ok(rejection_res);
+            return Ok(rejection);
         }
     };
 
@@ -219,9 +219,16 @@ pub async fn handle_session_modification_request(
         for remove_far in remove_fars.iter() {
             match remove_far.parse::<FarId>() {
                 Ok(received_far_id) => {
-                    remove_far_rule(&mut session, received_far_id.value);
+                    if let Err(e) = remove_far_rule(&mut session, received_far_id.value) {
+                        let rejection =
+                            SessionModificationResponseBuilder::new(up_seid, req.sequence())
+                                .cause_rejected()
+                                .failed_rule_id(e.to_ie())
+                                .build();
+                        return Ok(rejection);
+                    };
                 }
-                Err(_) => bail!("error extracting far ID from RemoveFar IE"),
+                Err(_) => bail!("error extracting far id from removefar ie"),
             }
         }
     }
@@ -233,7 +240,7 @@ pub async fn handle_session_modification_request(
                 Ok(received_qer_id) => {
                     remove_qer_rule(received_qer_id.value);
                 }
-                Err(_) => bail!("error extracting qer ID from RemoveQER IE"),
+                Err(_) => bail!("error extracting qer id from removeqer ie"),
             }
         }
     }
@@ -255,9 +262,16 @@ pub async fn handle_session_modification_request(
         for remove_pdr in remove_pdrs.iter() {
             match remove_pdr.parse::<PdrId>() {
                 Ok(received_pdr_id) => {
-                    remove_pdr_rule(&mut session, received_pdr_id.value);
+                    if let Err(e) = remove_pdr_rule(&mut session, received_pdr_id.value) {
+                        let rejection =
+                            SessionModificationResponseBuilder::new(up_seid, req.sequence())
+                                .cause_rejected()
+                                .failed_rule_id(e.to_ie())
+                                .build();
+                        return Ok(rejection);
+                    };
                 }
-                Err(_) => bail!("error extracting far ID from RemoveFar IE"),
+                Err(_) => bail!("error extracting far id from removefar ie"),
             }
         }
     }

@@ -1,6 +1,12 @@
 use log::debug;
 use raxupf_common::far::{DestinationInterfacePod, FarInfo};
-use rs_pfcp::ie::{create_far::CreateFar, destination_interface::Interface, update_far::UpdateFar};
+use rs_pfcp::{
+    error::PfcpError,
+    ie::{
+        create_far::CreateFar, destination_interface::Interface, failed_rule_id::FailedRuleId,
+        update_far::UpdateFar,
+    },
+};
 
 use crate::{rules::helpers::ohc_description_to_flags, session::PfcpSession};
 
@@ -90,4 +96,12 @@ pub fn update_far_rule(received_far: UpdateFar, session: &mut PfcpSession) {
     }
 }
 
-pub fn remove_far_rule(session: &mut PfcpSession, far_id: u32) {}
+pub fn remove_far_rule(session: &mut PfcpSession, far_id: u32) -> Result<(), FailedRuleId> {
+    if session.fars_mut().remove(&far_id).is_none() {
+        return Err(FailedRuleId::new(
+            rs_pfcp::ie::failed_rule_id::RuleIdType::Far,
+            far_id,
+        ));
+    };
+    Ok(())
+}
