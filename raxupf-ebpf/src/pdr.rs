@@ -151,7 +151,7 @@ pub fn process_pdrs(
                 }
             }
             None => {
-                debug!(ctx, "pdr points to non-existing far");
+                debug!(ctx, "pdr points to a non-existing far, dropping");
                 return Err(xdp_action::XDP_DROP);
             }
         };
@@ -227,7 +227,8 @@ pub fn process_pdrs(
             }
         }
 
-        let parsed_pdr = ParsedPdr::new(far.teid(), qfi, far.dscp(), remote_ip, action);
+        let remote_teid = far.teid(); // gNB's or PSA-UPF's allocated TEID
+        let parsed_pdr = ParsedPdr::new(remote_teid, qfi, far.dscp(), remote_ip, action);
         return Ok(parsed_pdr);
     }
 

@@ -6,10 +6,12 @@ use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use aya_ebpf::{bindings::xdp_action, macros::xdp, programs::XdpContext};
 use aya_log_ebpf::{debug, error, warn};
 use network_types::{eth::EtherType, ip::IpProto};
-use raxupf_common::{PROG_GTP, PROG_N6};
+use raxupf_common::{
+    PROG_GTP, PROG_N6,
+    gtpu::{GTPU_DST_PORT, GtpuMessageType},
+};
 use raxupf_ebpf::{
-    GTPU_DST_PORT,
-    gtpu::{GtpuMessageType, encapsulate_into_gtpu},
+    gtpu::encapsulate_into_gtpu,
     helpers::{parse_eth_hdr, parse_ip_header, parse_l4_header, route_packet_l2},
     maps::{DOWNLINK_PDRS_V4, DOWNLINK_PDRS_V6, INT_IPS_V4, INT_IPS_V6, JUMP_TABLE, PKT_CTX},
     message_handlers::{

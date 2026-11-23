@@ -35,7 +35,7 @@ pub fn handle_gpdu_message(ctx: &XdpContext, pkt_ctx: &PacketContext) -> Result<
                 }
             },
             PdrAction::Forward => (
-                update_gtpu(ctx, local_ipv4, parsed_pdr.remote_ip())?,
+                update_gtpu(ctx, local_ipv4, parsed_pdr.remote_ip(), parsed_pdr.teid())?,
                 IpProto::Udp,
             ),
             _ => return Ok(xdp_action::XDP_DROP),

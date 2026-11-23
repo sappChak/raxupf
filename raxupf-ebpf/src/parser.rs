@@ -3,13 +3,17 @@ use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use aya_ebpf::programs::XdpContext;
 use aya_log_ebpf::error;
 use network_types::ip::IpProto;
-use raxupf_common::fteid::FteidPod;
+use raxupf_common::{
+    fteid::FteidPod,
+    gtpu::{
+        DLPduSession, GTP_PROTOCOL_TYPE, GTP_VERSION, GtpuExtensionType, GtpuHdr, GtpuMessageType,
+        GtpuOptFields, ULPduSession,
+    },
+};
 
 use crate::{
-    GTP_PROTOCOL_TYPE, GTP_VERSION, MAX_EXT_HDRS,
-    gtpu::{GtpuExtensionType, GtpuHdr, GtpuMessageType, GtpuOptFields},
+    MAX_EXT_HDRS,
     helpers::{parse_ip_header, parse_l4_header, ptr_at, ptr_at_mut},
-    pdu::{DLPduSession, ULPduSession},
 };
 
 #[derive(Debug)]
