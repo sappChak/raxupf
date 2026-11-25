@@ -7,8 +7,9 @@ use network_types::{
     udp::UdpHdr,
 };
 use raxupf_common::gtpu::{
-    DLPduSession, GTPU_DST_PORT, GTPU_EXT_LEN, GTPU_HDR_LEN, GtpuDLPduExtensionHdr,
-    GtpuExtensionType, GtpuHdr, GtpuMessageType, GtpuOptFields, OUTER_HDRS_LEN_SUM,
+    DL_PDU_TYPE, DLPduSession, GTP_PROTOCOL_TYPE, GTP_VERSION, GTPU_DST_PORT, GTPU_EXT_LEN,
+    GTPU_HDR_LEN, GtpuDLPduExtensionHdr, GtpuExtensionType, GtpuHdr, GtpuMessageType,
+    GtpuOptFields, OUTER_HDRS_LEN_SUM,
 };
 
 use crate::helpers::{csum_replace4, ipv4_csum, ptr_at, ptr_at_mut};
@@ -56,7 +57,7 @@ pub fn encapsulate_into_gtpu(
         unsafe { &mut *ptr_at_mut(ctx, EthHdr::LEN + Ipv4Hdr::LEN + UdpHdr::LEN)? };
     // GTP-U Extension Header + old IP header is the GTP-U payload
     let ngtph_len = GTPU_EXT_LEN as u16 + oiph_len;
-    initialize_gtpu_header(gtpuh, teid, ngtph_len);
+    initialize_gtpu_header(gtpuh, teid, ngtph_len)?;
 
     let opth: &mut GtpuOptFields =
         unsafe { &mut *ptr_at_mut(ctx, EthHdr::LEN + Ipv4Hdr::LEN + UdpHdr::LEN + GtpuHdr::LEN)? };
@@ -68,7 +69,7 @@ pub fn encapsulate_into_gtpu(
             EthHdr::LEN + Ipv4Hdr::LEN + UdpHdr::LEN + GtpuHdr::LEN + GtpuOptFields::LEN,
         )?
     };
-    initialize_dl_pdu_container(pduh, qfi);
+    initialize_dl_pdu_container(pduh, qfi)?;
 
     let csum = unsafe {
         ipv4_csum(
@@ -87,12 +88,12 @@ pub fn update_gtpu(
     upf_ip: &IpAddr,
     remote_ip: &IpAddr,
     teid: u32,
-) -> Result<u16, ()> {
+) -> Result<(IpAddr, u16), ()> {
     let (upf_ip, remote_ip) = match (upf_ip, remote_ip) {
         (IpAddr::V4(upf), IpAddr::V4(remote)) => (*upf, *remote),
         _ => return Err(()), // TODO: implement Ipv6
     };
-    // change outer source and destination ip addresses, recalcute the checksum
+    // change outer source and destination ip addresses, recalculate checksum
     let iph: &mut Ipv4Hdr = unsafe { &mut *ptr_at_mut(ctx, EthHdr::LEN)? };
     let csum = iph.checksum();
     let new_cs = csum_replace4(csum as u32, iph.src_addr().to_bits(), upf_ip.to_bits());
@@ -108,11 +109,11 @@ pub fn update_gtpu(
         unsafe { &mut *ptr_at_mut(ctx, EthHdr::LEN + Ipv4Hdr::LEN + UdpHdr::LEN)? };
     gtpuh.set_teid(teid);
 
-    Ok(iph.tot_len())
+    Ok((IpAddr::V4(iph.dst_addr()), iph.tot_len()))
 }
 
 #[inline(always)]
-pub fn decapsulate_gtpu(ctx: &XdpContext, psc_len: usize) -> Result<(u16, IpProto), ()> {
+pub fn decapsulate_gtpu(ctx: &XdpContext, psc_len: usize) -> Result<(IpAddr, u16, IpProto), ()> {
     let oeth: *const EthHdr = ptr_at(ctx, 0)?;
 
     let encap_size = Ipv4Hdr::LEN + UdpHdr::LEN + GtpuHdr::LEN + GtpuOptFields::LEN + psc_len;
@@ -132,7 +133,11 @@ pub fn decapsulate_gtpu(ctx: &XdpContext, psc_len: usize) -> Result<(u16, IpProt
     };
 
     let iph: &Ipv4Hdr = unsafe { &*ptr_at(ctx, EthHdr::LEN)? };
-    Ok((iph.tot_len(), iph.proto().map_err(|_| ())?))
+    Ok((
+        IpAddr::V4(iph.dst_addr()),
+        iph.tot_len(),
+        iph.proto().map_err(|_| ())?,
+    ))
 }
 
 #[inline(always)]
@@ -168,11 +173,17 @@ fn initialize_udp_header(udph: &mut UdpHdr, src_port: u16, dst_port: u16, len: u
 }
 
 #[inline(always)]
-fn initialize_gtpu_header(gtpuh: &mut GtpuHdr, teid: u32, len: u16) {
-    gtpuh.set_version(1);
+fn initialize_gtpu_header(gtpuh: &mut GtpuHdr, teid: u32, len: u16) -> Result<(), ()> {
+    unsafe {
+        core::ptr::write_bytes(gtpuh as *mut GtpuHdr, 0, 1);
+    }
+    gtpuh.set_version(GTP_VERSION)?;
     gtpuh.set_message_type(GtpuMessageType::GPdu.into());
     gtpuh.set_message_length(len);
+    gtpuh.set_protocol_type(GTP_PROTOCOL_TYPE)?;
+    gtpuh.set_extension_header(true);
     gtpuh.set_teid(teid);
+    Ok(())
 }
 
 #[inline(always)]
@@ -183,18 +194,20 @@ fn initialize_gtpu_opt_fields(opth: &mut GtpuOptFields) {
 }
 
 #[inline(always)]
-fn initialize_dl_pdu_container(pduh: &mut GtpuDLPduExtensionHdr, qfi: u8) {
-    pduh.set_length(0); // ?
+fn initialize_dl_pdu_container(pduh: &mut GtpuDLPduExtensionHdr, qfi: u8) -> Result<(), ()> {
+    let length = GtpuDLPduExtensionHdr::LEN as u8 / 4;
+    pduh.set_length(length);
 
     let mut content = DLPduSession::default();
-    content.set_pdu_type(0); // 0 - DL PDU
-    content.set_qmp(0);
-    content.set_snp(0);
-    content.set_msnp(0);
-    content.set_ppp(0);
-    content.set_rqi(0);
-    content.set_qfi(qfi);
+    content.set_pdu_type(DL_PDU_TYPE)?;
+    content.set_qmp(false);
+    content.set_snp(false);
+    content.set_msnp(false);
+    content.set_ppp(false);
+    content.set_rqi(false);
+    content.set_qfi(qfi)?;
 
     pduh.set_content(content);
-    pduh.set_next_extension_header(0); // no more extension headers
+    pduh.set_next_extension_header(GtpuExtensionType::NoMoreExtensions.into());
+    Ok(())
 }
