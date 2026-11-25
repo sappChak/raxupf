@@ -5,8 +5,8 @@ use std::{
 
 use anyhow::bail;
 use raxupf_common::{
-    FAR_MAP_SIZE, PDR_MAP_SIZE, QER_MAP_SIZE, URR_MAP_SIZE, far::FarInfo, pdr::PdrInfo,
-    qer::QerInfo, urr::UrrInfo,
+    FAR_MAP_SIZE, PDR_MAP_SIZE, QER_MAP_SIZE, URR_MAP_SIZE, far::FarInfo, fteid::Teid,
+    pdr::PdrInfo, qer::QerInfo, urr::UrrInfo,
 };
 
 #[derive(Debug, Clone)]
@@ -14,7 +14,7 @@ pub struct PfcpSession {
     cp_seid: u64,
     ue_ipv4: Option<Ipv4Addr>,      // key into eBPF DL PDRs
     ue_ipv6: Option<Ipv6Addr>,      // key into eBPF DL PDRs
-    teid: Option<u32>,              // key into eBPF UL PDRs
+    teid: Option<Teid>,             // key into eBPF UL PDRs
     cp_nodeid: String,              // key to access entry in ctx.associations
     ul_pdrs: HashMap<u16, PdrInfo>, // key: pdr id
     dl_pdrs: HashMap<u16, PdrInfo>, // key: pdr id
@@ -55,11 +55,11 @@ impl PfcpSession {
         self.ue_ipv6 = Some(ip);
     }
 
-    pub fn teid(&self) -> Option<u32> {
+    pub fn teid(&self) -> Option<Teid> {
         self.teid
     }
 
-    pub fn set_teid(&mut self, teid: u32) {
+    pub fn set_teid(&mut self, teid: raxupf_common::fteid::Teid) {
         self.teid = Some(teid);
     }
 

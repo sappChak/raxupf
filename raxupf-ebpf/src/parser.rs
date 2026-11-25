@@ -4,7 +4,7 @@ use aya_ebpf::programs::XdpContext;
 use aya_log_ebpf::error;
 use network_types::ip::IpProto;
 use raxupf_common::{
-    fteid::FteidPod,
+    fteid::{FteidPod, Teid},
     gtpu::{
         DLPduSession, GTP_PROTOCOL_TYPE, GTP_VERSION, GtpuExtensionType, GtpuHdr, GtpuMessageType,
         GtpuOptFields, ULPduSession,
@@ -324,14 +324,14 @@ pub fn parse_gtpu_header(
 
     let local_fteid = match upf_ip {
         IpAddr::V4(ipv4_addr) => FteidPod::new(
-            gtpuh.teid(),
+            Teid::new(gtpuh.teid()),
             ipv4_addr.to_bits(),
             Ipv6Addr::UNSPECIFIED.octets(),
             true,
             false,
         ),
         IpAddr::V6(ipv6_addr) => FteidPod::new(
-            gtpuh.teid(),
+            Teid::new(gtpuh.teid()),
             Ipv4Addr::UNSPECIFIED.to_bits(),
             ipv6_addr.octets(),
             false,

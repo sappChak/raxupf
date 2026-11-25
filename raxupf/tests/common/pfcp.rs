@@ -46,14 +46,14 @@ use rs_pfcp::{
 };
 
 use crate::{
-    common::spawn_test_setup,
+    common::spawn_cp_test_setup,
     helpers::{CreatePdrParams, create_downlink_pdr, create_uplink_pdr},
 };
 
 #[tokio::test]
 async fn basic_pfcp_lifecycle_succeeds() -> anyhow::Result<()> {
     // Arrange
-    let test_setup = spawn_test_setup().await.unwrap();
+    let test_setup = spawn_cp_test_setup().await.unwrap();
     let ctx = test_setup.ctx();
     let gnb_ipv4 = Ipv4Addr::from_str("172.20.0.140").unwrap();
     let (smf_ipv4, smf_port) = (Ipv4Addr::from_str("172.20.0.110").unwrap(), 8805);

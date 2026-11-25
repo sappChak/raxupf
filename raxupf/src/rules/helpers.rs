@@ -1,5 +1,10 @@
 use anyhow::bail;
-use raxupf_common::{far::OhcFlags, fteid::FteidPod, pdi::PdiPod, ue_ip::UeIpPod};
+use raxupf_common::{
+    far::OhcFlags,
+    fteid::{FteidPod, Teid},
+    pdi::PdiPod,
+    ue_ip::UeIpPod,
+};
 use rs_pfcp::ie::{
     f_teid::Fteid, outer_header_creation::OuterHeaderCreationFlags, pdi::Pdi,
     ue_ip_address::UeIpAddress,
@@ -109,7 +114,7 @@ pub async fn parse_fteid(ctx: &PfcpContext, fteid: &Fteid) -> anyhow::Result<Fte
             }
         };
 
-        fteid_pod.set_teid(teid.value());
+        fteid_pod.set_teid(Teid::new(teid.value()));
         return Ok(fteid_pod);
     }
 
@@ -153,7 +158,7 @@ pub async fn parse_ue_ip(ctx: &PfcpContext, ue_ip_ie: &UeIpAddress) -> anyhow::R
     Ok(ue_ip_pod)
 }
 
-pub fn fteid_pod_to_ie(fteid_pod: &FteidPod) -> Fteid {
+pub fn fteid_pod_to_ie(fteid_pod: &FteidPod) -> rs_pfcp::ie::f_teid::Fteid {
     let ipv4_address = if fteid_pod.is_v4() {
         Some(fteid_pod.ipv4_address().into())
     } else {
@@ -167,7 +172,7 @@ pub fn fteid_pod_to_ie(fteid_pod: &FteidPod) -> Fteid {
     Fteid::new(
         ipv4_address.is_some(),
         ipv6_address.is_some(),
-        fteid_pod.teid(),
+        fteid_pod.teid().value(),
         ipv4_address,
         ipv6_address,
         0,
@@ -182,7 +187,7 @@ pub fn fteid_ie_to_pod(fteid: &Fteid) -> FteidPod {
     if let Some(ipv6_address) = fteid.ipv6_address.map(|addr| addr.octets()) {
         fteid_pod.set_ipv6_address(ipv6_address);
     }
-    fteid_pod.set_teid(fteid.teid.value());
+    fteid_pod.set_teid(Teid::new(fteid.teid.value()));
     fteid_pod
 }
 

@@ -1,7 +1,12 @@
+#![allow(unused_variables)]
+
 use std::sync::Arc;
 
 use raxupf::{
-    StoreRules, configuration::config::get_configuration, loader::load_ebpf, pfcp::PfcpContext,
+    BpfMaps, StoreRules,
+    configuration::config::get_configuration,
+    loader::{LoadResult, load_ebpf, load_xdp_progs},
+    pfcp::PfcpContext,
 };
 
 pub struct MockMaps {}
@@ -44,18 +49,19 @@ impl StoreRules for MockMaps {
     }
 }
 
-pub struct TestSetup {
+pub struct TestSetup<'a> {
     pub ctx: Arc<PfcpContext>,
-    pub _ebpf: aya::Ebpf,
+    pub _ebpf: Option<aya::Ebpf>,
+    pub xdp: Option<LoadResult<'a>>,
 }
 
-impl TestSetup {
+impl<'a> TestSetup<'a> {
     pub fn ctx(&self) -> &PfcpContext {
         &self.ctx
     }
 }
 
-pub async fn spawn_test_setup() -> anyhow::Result<TestSetup> {
+pub async fn spawn_cp_test_setup<'a>() -> anyhow::Result<TestSetup<'a>> {
     let configuration = get_configuration().unwrap();
 
     assert_eq!(configuration.pfcp.node_id, "172.20.0.1".to_string());
@@ -66,5 +72,29 @@ pub async fn spawn_test_setup() -> anyhow::Result<TestSetup> {
     let maps = Arc::new(MockMaps {});
 
     let ctx = PfcpContext::new(maps, &configuration).await?;
-    Ok(TestSetup { ctx, _ebpf: ebpf })
+    Ok(TestSetup {
+        ctx,
+        _ebpf: Some(ebpf),
+        xdp: None,
+    })
+}
+
+pub async fn spawn_dataplane_test_setup<'a>(
+    ebpf: &'a mut aya::Ebpf,
+) -> anyhow::Result<TestSetup<'a>> {
+    let configuration = get_configuration().unwrap();
+
+    assert_eq!(configuration.pfcp.node_id, "172.20.0.1".to_string());
+    assert_eq!(configuration.pfcp.local_addr, "172.20.0.1".to_string());
+    assert_eq!(configuration.gtpu.mode, "generic".to_string());
+
+    let maps = Arc::new(BpfMaps::new(ebpf)?);
+    let load_result = load_xdp_progs(ebpf)?;
+
+    let ctx = PfcpContext::new(maps, &configuration).await?;
+    Ok(TestSetup {
+        ctx,
+        _ebpf: None,
+        xdp: Some(load_result),
+    })
 }

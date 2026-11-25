@@ -19,32 +19,34 @@ pub fn handle_gpdu_message(ctx: &XdpContext, pkt_ctx: &PacketContext) -> Result<
 
     let ext_tot_len = gtp.psc.ext_tot_len();
     let local_ipv4 = pkt_ctx.upf_ip();
+    let teid = gtp.gtpu.local_fteid.teid().value();
 
-    if let Some(ul_pdrs) = unsafe { UPLINK_PDRS.get(gtp.gtpu.local_fteid.teid()) } {
+    if let Some(ul_pdrs) = unsafe { UPLINK_PDRS.get(teid) } {
         let parsed_pdr = match process_pdrs(ctx, pkt_ctx, ul_pdrs) {
             Ok(pdr) => pdr,
             Err(err) => return Ok(err),
         };
 
-        let (niph_len, protocol) = match parsed_pdr.action() {
+        let (remote_ip, niph_len, protocol) = match parsed_pdr.action() {
             PdrAction::Remove => match decapsulate_gtpu(ctx, ext_tot_len) {
-                Ok((len, proto)) => (len, proto),
+                Ok((remote_ip, len, proto)) => (remote_ip, len, proto),
                 Err(_) => {
                     error!(ctx, "failed to decapsulate gtp-u packet");
                     return Ok(xdp_action::XDP_DROP);
                 }
             },
-            PdrAction::Forward => (
-                update_gtpu(ctx, local_ipv4, parsed_pdr.remote_ip(), parsed_pdr.teid())?,
-                IpProto::Udp,
-            ),
+            PdrAction::Forward => {
+                let (remote_ip, len) =
+                    update_gtpu(ctx, local_ipv4, parsed_pdr.remote_ip(), parsed_pdr.teid())?;
+                (remote_ip, len, IpProto::Udp)
+            }
             _ => return Ok(xdp_action::XDP_DROP),
         };
 
         return route_packet_l2(
             ctx,
             local_ipv4,
-            parsed_pdr.remote_ip(),
+            &remote_ip,
             protocol,
             niph_len,
             ctx.ingress_ifindex() as u32,

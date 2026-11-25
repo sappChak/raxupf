@@ -3,29 +3,21 @@ use std::{
     str::FromStr,
 };
 
-use raxupf::{
-    helpers::prefix_to_ipv6_mask,
-    rules::pdr::create_pdr_rule,
-    session::PfcpSession,
-};
+use raxupf::{helpers::prefix_to_ipv6_mask, rules::pdr::create_pdr_rule, session::PfcpSession};
 use raxupf_common::{
-    SDF_MAP_SIZE,
-    fteid::FteidPod,
-    pdi::{PdiMask, PdiPod, SourceInterfacePod},
-    pdr::{OhrPod, PdrInfo},
-    sdf::{IpPod, SdfFilterPod},
+    SDF_MAP_SIZE, fteid::{FteidPod, Teid}, pdi::{PdiMask, PdiPod, SourceInterfacePod}, pdr::{OhrPod, PdrInfo}, sdf::{IpPod, SdfFilterPod}, ue_ip::UeIpPod,
 };
 use rs_pfcp::ie::source_interface::SourceInterfaceValue;
 
 use crate::{
-    common::spawn_test_setup,
-    helpers::{CreatePdrParams, create_uplink_pdr},
+    common::spawn_cp_test_setup,
+    helpers::{CreatePdrParams, create_downlink_pdr, create_uplink_pdr},
 };
 
 #[tokio::test]
 async fn session_contains_correct_ul_pdr() -> anyhow::Result<()> {
     // Arrange
-    let test_setup = spawn_test_setup().await?;
+    let test_setup = spawn_cp_test_setup().await?;
     let ctx = test_setup.ctx();
     let smf_ipv4 = Ipv4Addr::from_str("172.20.0.110").unwrap();
     let dnn = "internet";
@@ -56,7 +48,7 @@ async fn session_contains_correct_ul_pdr() -> anyhow::Result<()> {
         pdi_mask: PdiMask::F_TEID,
         source_interface: SourceInterfacePod::ACCESS,
         fteid: FteidPod::new(
-            0x500a,
+            Teid::new(0x500a),
             smf_ipv4.to_bits(),
             Ipv6Addr::UNSPECIFIED.octets(),
             true,
@@ -109,7 +101,7 @@ async fn session_contains_correct_ul_pdr() -> anyhow::Result<()> {
         pdi_mask: PdiMask::F_TEID | PdiMask::SDF_FILTER,
         source_interface: SourceInterfacePod::CP_FUNCTION,
         fteid: FteidPod::new(
-            0x500a,
+            Teid::new(0x500a),
             smf_ipv4.to_bits(),
             Ipv6Addr::UNSPECIFIED.octets(),
             true,
@@ -135,8 +127,57 @@ async fn session_contains_correct_ul_pdr() -> anyhow::Result<()> {
 #[tokio::test]
 async fn session_contains_correct_dl_pdr() -> anyhow::Result<()> {
     // Arrange
-    let test_setup = spawn_test_setup().await?;
+    let test_setup = spawn_cp_test_setup().await?;
     let ctx = test_setup.ctx();
+    let smf_ipv4 = Ipv4Addr::from_str("172.20.0.110").unwrap();
+    let dnn = "internet";
+    let smf_ip = IpAddr::V4(smf_ipv4);
+    let ue_ipv4 = Ipv4Addr::from_str("10.60.0.2").unwrap();
+    let ue_ip = IpAddr::V4(ue_ipv4);
+
+    let mut session = PfcpSession::new("smf.open5gs.org".to_string(), 12345);
+
+    let params = CreatePdrParams {
+        pdr_id: 1,
+        teid: None,
+        smf_ip,
+        ue_ip: Some(ue_ip),
+        source_interface: SourceInterfaceValue::Core,
+        dnn: dnn.to_string(),
+        description: None,
+        flow_description: None,
+        precedence: 65535,
+        far_id: 0,
+        qer_id: 0,
+        urr_id: 0,
+    };
+    let received_pdr = create_downlink_pdr(&params)?;
+
+    // Act
+    let _ = create_pdr_rule(&received_pdr, ctx, &mut session).await?;
+
+    // Assert
+    let expected_pdi = PdiPod {
+        pdi_mask: PdiMask::UE_IP,
+        source_interface: SourceInterfacePod::CORE,
+        ue_ip_address: UeIpPod::new(
+            ue_ipv4.to_bits(),
+            Ipv6Addr::UNSPECIFIED.to_bits(),
+            true,
+            false,
+        ),
+        ..Default::default()
+    };
+    let expected_pdr = PdrInfo {
+        pdr_id: 1,
+        precedence: 65535,
+        outer_header_removal: OhrPod::none(),
+        pdi: expected_pdi,
+        allocated: true,
+        ..Default::default()
+    };
+
+    assert_eq!(*session.get_dl_pdr(1).unwrap(), expected_pdr);
 
     Ok(())
 }

@@ -1,9 +1,23 @@
 // TODO: add bitflags for possible ipv6 and other flags
 
+#[repr(transparent)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Teid(u32);
+
+impl Teid {
+    pub fn new(teid: u32) -> Self {
+        Self(teid)
+    }
+
+    pub fn value(&self) -> u32 {
+        self.0
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct FteidPod {
-    teid: u32,
+    teid: Teid,
     v4: bool,
     v6: bool,
     ipv4_address: u32,
@@ -11,7 +25,7 @@ pub struct FteidPod {
 }
 
 impl FteidPod {
-    pub fn new(teid: u32, ipv4_address: u32, ipv6_address: [u8; 16], v4: bool, v6: bool) -> Self {
+    pub fn new(teid: Teid, ipv4_address: u32, ipv6_address: [u8; 16], v4: bool, v6: bool) -> Self {
         Self {
             teid,
             ipv4_address,
@@ -29,11 +43,11 @@ impl FteidPod {
         self.v6
     }
 
-    pub fn teid(&self) -> u32 {
+    pub fn teid(&self) -> Teid {
         self.teid
     }
 
-    pub fn set_teid(&mut self, teid: u32) {
+    pub fn set_teid(&mut self, teid: Teid) {
         self.teid = teid;
     }
 

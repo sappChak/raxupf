@@ -72,7 +72,7 @@ impl PfcpContext {
 
     pub async fn compile_session(&self, session: PfcpSession) -> anyhow::Result<()> {
         let teid = match session.teid() {
-            Some(teid) => teid,
+            Some(teid) => teid.value(),
             None => bail!("session has no teid, cannot compile"),
         };
 
