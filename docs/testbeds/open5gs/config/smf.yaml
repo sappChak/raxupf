@@ -1,0 +1,35 @@
+logger:
+  file:
+    path: /var/log/open5gs/smf.log
+
+global:
+  max:
+    ue: 1024
+
+smf:
+  sbi:
+    server:
+      - address: smf.open5gs.org
+        port: 7777
+    client:
+      scp:
+        - uri: http://scp.open5gs.org:7777
+  pfcp:
+    server:
+      - address: smf.open5gs.org
+    client:
+      upf:
+        - address: upf.open5gs.org
+  gtpc:
+    server:
+      - address: smf.open5gs.org
+  gtpu:
+    server:
+      - address: smf.open5gs.org
+  # UE pool. Must match UE_SUBNET in .env.
+  session:
+    - subnet: 10.60.0.0/16
+      gateway: 10.60.0.1
+  dns:
+    - 8.8.8.8
+  mtu: 1400

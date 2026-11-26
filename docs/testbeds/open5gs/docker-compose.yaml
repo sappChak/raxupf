@@ -1,0 +1,311 @@
+x-open5gs: &open5gs
+  image: ${OPEN5GS_IMAGE}
+  restart: unless-stopped
+
+services:
+  mongodb:
+    image: ${MONGO_IMAGE}
+    container_name: open5gs-mongodb
+    volumes:
+      - mongodb:/data/db
+      - ./add_subscriber.js:/docker-entrypoint-initdb.d/add_subscriber.js:ro
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 5s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      core:
+        ipv4_address: ${MONGODB_IPV4_ADDRESS}
+        aliases:
+          - mongodb.${DOMAIN}
+
+  webui:
+    <<: *open5gs
+    container_name: open5gs-webui
+    environment:
+      NF_BIN: open5gs-webui
+      HOSTNAME: 0.0.0.0
+      PORT: 9999
+      DB_URI: mongodb://mongodb/open5gs
+    ports:
+      - ${WEBUI_PORT}:9999
+    depends_on:
+      mongodb: { condition: service_healthy }
+    networks:
+      core:
+        ipv4_address: ${WEBUI_IPV4_ADDRESS}
+
+  nrf:
+    <<: *open5gs
+    container_name: open5gs-nrf
+    environment:
+      NF_BIN: open5gs-nrfd
+      NF_CFG: /etc/open5gs/nrf.yaml
+    volumes:
+      - ./config/nrf.yaml:/etc/open5gs/nrf.yaml:ro
+    networks:
+      core:
+        ipv4_address: ${NRF_IPV4_ADDRESS}
+        aliases:
+          - nrf.${DOMAIN}
+
+  scp:
+    <<: *open5gs
+    container_name: open5gs-scp
+    environment:
+      NF_BIN: open5gs-scpd
+      NF_CFG: /etc/open5gs/scp.yaml
+    volumes:
+      - ./config/scp.yaml:/etc/open5gs/scp.yaml:ro
+    depends_on: [nrf]
+    networks:
+      core:
+        ipv4_address: ${SCP_IPV4_ADDRESS}
+        aliases:
+          - scp.${DOMAIN}
+
+  ausf:
+    <<: *open5gs
+    container_name: open5gs-ausf
+    environment:
+      NF_BIN: open5gs-ausfd
+      NF_CFG: /etc/open5gs/ausf.yaml
+    volumes:
+      - ./config/ausf.yaml:/etc/open5gs/ausf.yaml:ro
+    depends_on: [scp]
+    networks:
+      core:
+        ipv4_address: ${AUSF_IPV4_ADDRESS}
+        aliases:
+          - ausf.${DOMAIN}
+
+  udm:
+    <<: *open5gs
+    container_name: open5gs-udm
+    environment:
+      NF_BIN: open5gs-udmd
+      NF_CFG: /etc/open5gs/udm.yaml
+    volumes:
+      - ./config/udm.yaml:/etc/open5gs/udm.yaml:ro
+    depends_on: [scp]
+    networks:
+      core:
+        ipv4_address: ${UDM_IPV4_ADDRESS}
+        aliases:
+          - udm.${DOMAIN}
+
+  udr:
+    <<: *open5gs
+    container_name: open5gs-udr
+    environment:
+      NF_BIN: open5gs-udrd
+      NF_CFG: /etc/open5gs/udr.yaml
+    volumes:
+      - ./config/udr.yaml:/etc/open5gs/udr.yaml:ro
+    depends_on:
+      scp: { condition: service_started }
+      mongodb: { condition: service_healthy }
+    networks:
+      core:
+        ipv4_address: ${UDR_IPV4_ADDRESS}
+        aliases:
+          - udr.${DOMAIN}
+
+  pcf:
+    <<: *open5gs
+    container_name: open5gs-pcf
+    environment:
+      NF_BIN: open5gs-pcfd
+      NF_CFG: /etc/open5gs/pcf.yaml
+    volumes:
+      - ./config/pcf.yaml:/etc/open5gs/pcf.yaml:ro
+    depends_on:
+      scp: { condition: service_started }
+      mongodb: { condition: service_healthy }
+    networks:
+      core:
+        ipv4_address: ${PCF_IPV4_ADDRESS}
+        aliases:
+          - pcf.${DOMAIN}
+
+  bsf:
+    <<: *open5gs
+    container_name: open5gs-bsf
+    environment:
+      NF_BIN: open5gs-bsfd
+      NF_CFG: /etc/open5gs/bsf.yaml
+    volumes:
+      - ./config/bsf.yaml:/etc/open5gs/bsf.yaml:ro
+    depends_on: [scp]
+    networks:
+      core:
+        ipv4_address: ${BSF_IPV4_ADDRESS}
+        aliases:
+          - bsf.${DOMAIN}
+
+  nssf:
+    <<: *open5gs
+    container_name: open5gs-nssf
+    environment:
+      NF_BIN: open5gs-nssfd
+      NF_CFG: /etc/open5gs/nssf.yaml
+    volumes:
+      - ./config/nssf.yaml:/etc/open5gs/nssf.yaml:ro
+    depends_on: [scp]
+    networks:
+      core:
+        ipv4_address: ${NSSF_IPV4_ADDRESS}
+        aliases:
+          - nssf.${DOMAIN}
+
+  smf:
+    <<: *open5gs
+    container_name: open5gs-smf
+    environment:
+      NF_BIN: open5gs-smfd
+      NF_CFG: /etc/open5gs/smf.yaml
+    volumes:
+      - ./config/smf.yaml:/etc/open5gs/smf.yaml:ro
+    depends_on: [scp, pcf, nssf, upf]
+    networks:
+      core:
+        ipv4_address: ${SMF_IPV4_ADDRESS}
+        aliases:
+          - smf.${DOMAIN}
+
+  amf:
+    <<: *open5gs
+    container_name: open5gs-amf
+    environment:
+      NF_BIN: open5gs-amfd
+      NF_CFG: /etc/open5gs/amf.yaml
+    volumes:
+      - ./config/amf.yaml:/etc/open5gs/amf.yaml:ro
+    depends_on: [scp, ausf, udm, udr, pcf, nssf, smf]
+    networks:
+      core:
+        ipv4_address: ${AMF_IPV4_ADDRESS}
+        aliases:
+          - amf.${DOMAIN}
+
+  upf:
+    image: ${EUPF_IMAGE}
+    container_name: upf
+    privileged: true
+    ulimits:
+      memlock: -1
+    environment:
+      GIN_MODE: release
+    volumes:
+      - /sys/fs/bpf:/sys/fs/bpf
+      - ./config/eupf.yaml:/config.yml:ro
+    sysctls:
+      - net.ipv4.conf.all.forwarding=1
+    ports:
+      - ${UPF_API_PORT}:8081
+      - ${UPF_METRICS_PORT}:9090
+    restart: unless-stopped
+    networks:
+      core:
+        ipv4_address: ${UPF_IPV4_ADDRESS}
+        mac_address: 02:42:ac:14:00:82   # fixed: see the networks section
+        aliases:
+          - upf.${DOMAIN}
+
+  gnb:
+    profiles: [ueransim]
+    image: ${UERANSIM_IMAGE}
+    container_name: gnb
+    command: ./nr-gnb -c ./config/gnb.yaml
+    volumes:
+      - ./config/gnb.yaml:/ueransim/config/gnb.yaml:ro
+    cap_add: [NET_ADMIN]
+    depends_on: [amf, upf]
+    networks:
+      core:
+        ipv4_address: ${GNB_IPV4_ADDRESS}
+        mac_address: 02:42:ac:14:00:8c   # fixed: see the networks section
+        aliases:
+          - gnb.${DOMAIN}
+
+  ue:
+    profiles: [ueransim]
+    image: ${UERANSIM_IMAGE}
+    container_name: ue
+    command: ./nr-ue -c ./config/ue.yaml
+    volumes:
+      - ./config/ue.yaml:/ueransim/config/ue.yaml:ro
+    cap_add: [NET_ADMIN]
+    devices:
+      - /dev/net/tun
+    depends_on: [gnb]
+    networks:
+      core:
+        ipv4_address: ${UE_IPV4_ADDRESS}
+
+  # Alternative RAN: gNBs + UE in one process, with an eBPF GTP-U tunnel that
+  # sustains iperf3 load. One UE on gNB 000002 (.160), plus gNB 000003 (.161) as
+  # a handover target. The control socket triggers procedures (see the README).
+  packetrusher:
+    profiles: [packetrusher]
+    build: ./packetrusher
+    image: raxupf-packetrusher:v2.0.0
+    container_name: packetrusher
+    command: >-
+      multi-ue -n 1 --tunnel --dedicatedGnb --number-of-gnbs 2
+      --control-socket /run/packetrusher.sock
+    environment:
+      EXTRA_GNB_ADDRESSES: ${PACKETRUSHER_GNB2_IPV4_ADDRESS}/24
+      # Primes the UPF's ARP entry for the extra gNB (see packetrusher/entrypoint.sh).
+      ARP_PRIME_TARGET: ${UPF_IPV4_ADDRESS}
+    privileged: true            # loads the eBPF tunnel programs, creates the VRF
+    ulimits:
+      memlock: -1
+    volumes:
+      - ./config/packetrusher.yml:/packetrusher/config/config.yml:ro
+    stop_grace_period: 30s      # time to deregister on SIGINT
+    depends_on: [amf, upf]
+    networks:
+      core:
+        ipv4_address: ${PACKETRUSHER_IPV4_ADDRESS}
+        mac_address: 02:42:ac:14:00:a0   # fixed: see the networks section
+
+  # Data network host (N6 peer). Routes the UE pool back through the UPF.
+  # TX checksum offload is disabled: on veth it leaves TCP/UDP checksums for the
+  # "hardware" to fill in, and a generic-XDP UPF encapsulates them into GTP-U
+  # unfinished, so the UE drops all downlink TCP/UDP (ICMP still works).
+  dn:
+    build: ./dn
+    image: raxupf-dn:latest
+    container_name: dn
+    command: >-
+      sh -c "ip route replace ${UE_SUBNET} via ${UPF_IPV4_ADDRESS}
+      && ethtool -K eth0 tx off
+      && exec sleep infinity"
+    cap_add: [NET_ADMIN, NET_RAW]
+    networks:
+      core:
+        ipv4_address: ${DN_IPV4_ADDRESS}
+        mac_address: 02:42:ac:14:00:9b   # fixed: see the networks section
+
+# The UPF and its peers (gNBs, DN) have fixed MAC addresses. An XDP UPF forwards
+# with the neighbour entries of its kernel, which XDP traffic never refreshes.
+# With Docker's random MACs, a restarted peer would leave the UPF sending to its
+# old MAC.
+networks:
+  core:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: ${CORE_BRIDGE}
+    ipam:
+      config:
+        - subnet: ${CORE_SUBNET}
+          gateway: ${CORE_GATEWAY}
+          # Dynamic addresses (e.g. `docker run --net`) come from here, away from
+          # the static ones, including PacketRusher's extra gNB address.
+          ip_range: ${CORE_DYNAMIC_RANGE}
+
+volumes:
+  mongodb: {}

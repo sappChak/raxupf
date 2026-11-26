@@ -1,0 +1,16 @@
+logger:
+  file:
+    path: /var/log/open5gs/bsf.log
+
+global:
+  max:
+    ue: 1024
+
+bsf:
+  sbi:
+    server:
+      - address: bsf.open5gs.org
+        port: 7777
+    client:
+      scp:
+        - uri: http://scp.open5gs.org:7777

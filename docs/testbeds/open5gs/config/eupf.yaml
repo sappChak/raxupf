@@ -1,0 +1,17 @@
+interface_name: [eth0]
+xdp_attach_mode: generic
+api_address: :8081
+pfcp_address: :8805
+pfcp_node_id: upf.open5gs.org
+metrics_address: :9090
+# Must match UPF_IPV4_ADDRESS in .env: advertised to the SMF and used by the gNB for N3.
+n3_address: 172.20.0.130
+n9_address: 172.20.0.130
+qer_map_size: 1024
+far_map_size: 1024
+pdr_map_size: 1024
+urr_map_size: 1024
+# The SMF allocates UE IPs and F-TEIDs.
+feature_ueip: false
+feature_ftup: false
+teid_pool: 65535
