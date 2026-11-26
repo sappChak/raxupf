@@ -1,0 +1,16 @@
+logger:
+  file:
+    path: /var/log/open5gs/scp.log
+
+global:
+  max:
+    ue: 1024
+
+scp:
+  sbi:
+    server:
+      - address: scp.open5gs.org
+        port: 7777
+    client:
+      nrf:
+        - uri: http://nrf.open5gs.org:7777

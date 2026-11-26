@@ -1,0 +1,59 @@
+# PacketRusher: simulated gNB + UE. Must match .env, config/amf.yaml and add_subscriber.js.
+gnodeb:
+  controlif:              # N2. Must match PACKETRUSHER_IPV4_ADDRESS in .env.
+    ip: "172.20.0.160"
+    port: 9487
+  dataif:                 # N3
+    ip: "172.20.0.160"
+    port: 2152
+  plmnlist:
+    mcc: "999"
+    mnc: "70"
+    tac: "000001"
+    gnbidlength: 24
+    cellid: 0
+    gnbid: "000002"       # distinct from the UERANSIM gNB
+  slicesupportlist:
+    sst: "01"
+    sd: ""                # no SD, like the rest of the testbed
+
+ue:
+  # SUPI imsi-999700000000002 (<mcc><mnc><msin>), sent with the SUCI null scheme.
+  hplmn:
+    mcc: "999"
+    mnc: "70"
+  msin: "0000000002"
+  routingindicator: "0000"
+  protectionScheme: 0
+  homeNetworkPublicKey: ""
+  homeNetworkPublicKeyID: 0
+
+  key: "465B5CE8B199B49FAA5F0A2EE238A6BC"
+  opc: "E8ED289DEBA952E4283B54E88E6183CA"
+  amf: "8000"
+  sqn: "00000000"
+
+  pdusessiontype: IPv4
+  dnn: "internet"
+  snssai:
+    sst: "01"
+    sd: ""
+  tunnelmtu: 1400         # matches the MTU the SMF advertises
+
+  integrity:
+    nia0: false
+    nia1: false
+    nia2: true
+    nia3: false
+  ciphering:              # NEA0 keeps NAS readable in captures (the AMF prefers it)
+    nea0: true
+    nea1: false
+    nea2: true
+    nea3: false
+
+amfif:
+  - ip: "172.20.0.120"    # AMF_IPV4_ADDRESS in .env
+    port: 38412
+
+logs:
+  level: 4

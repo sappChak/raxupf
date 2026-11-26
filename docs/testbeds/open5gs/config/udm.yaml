@@ -1,0 +1,16 @@
+logger:
+  file:
+    path: /var/log/open5gs/udm.log
+
+global:
+  max:
+    ue: 1024
+
+udm:
+  sbi:
+    server:
+      - address: udm.open5gs.org
+        port: 7777
+    client:
+      scp:
+        - uri: http://scp.open5gs.org:7777
