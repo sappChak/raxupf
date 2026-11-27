@@ -2,10 +2,10 @@
 # Captures a PacketRusher UE that registers, runs iperf3 through the UPF, hands
 # over to the other gNB mid-transfer, keeps sending, and deregisters.
 #
-# Usage: scenarios/handover.sh [xn|ng]
+# Usage: scripts/handover.sh [xn|ng]
 #   Env: DURATION (s, default 20), HANDOVER_AT (s, default 10),
 #        BITRATE (iperf3 -b, default 2M), REVERSE=1 (downlink iperf3),
-#        OUT (output directory, default captures/)
+#        PROTOCOL (UDP/TCP, default tcp), OUT (output directory, default captures/)
 #
 # Needs the stack running with the packetrusher profile. Writes
 # <OUT>/handover-<type>-<timestamp>.pcap with N2 (NGAP), N3 (GTP-U) and N4 (PFCP),
@@ -17,10 +17,11 @@ DURATION=${DURATION:-20}
 HANDOVER_AT=${HANDOVER_AT:-10}
 BITRATE=${BITRATE:-2M}
 REVERSE=${REVERSE:-0}
-HERE=$(cd "$(dirname "$0")/.." && pwd)
-OUT=${OUT:-$HERE/captures}
+PROTOCOL=${PROTOCOL:-tcp}
+PROJECT_DIR=$(cd "$(dirname "$0")/.." && pwd)
+OUT=${OUT:-$PROJECT_DIR/captures}
 
-DN_ADDR=$(grep -E '^DN_IPV4_ADDRESS=' "$HERE/.env" | cut -d= -f2)
+DN_ADDR=$(grep -E '^DN_IPV4_ADDRESS=' "$PROJECT_DIR/.env" | cut -d= -f2)
 CAPTURE_IMAGE=raxupf-dn:latest
 VRF=vrf0000000002
 UE_DEV=val0000000002
@@ -49,7 +50,7 @@ CAPTURES=()
 cleanup() {
   for name in "${CAPTURES[@]}"; do docker stop -t 2 "$name" >/dev/null 2>&1 || true; done
 }
-trap cleanup EXIT
+trap cleanup EXIT SIGINT SIGTERM
 
 capture() { # <name> <netns container> <filter> <file>
   docker run -d --rm --name "$1" --net "container:$2" --cap-add NET_RAW --cap-add NET_ADMIN \
@@ -90,9 +91,10 @@ sleep 1
 
 DIRECTION=uplink; IPERF_ARGS=()
 if [[ "$REVERSE" == 1 ]]; then DIRECTION=downlink; IPERF_ARGS=(-R); fi
-log "iperf3 $DIRECTION at $BITRATE for ${DURATION}s, $TYPE handover at ${HANDOVER_AT}s"
+if [[ "$PROTOCOL" == udp ]]; then IPERF_ARGS+=(-u); fi
+log "iperf3 $PROTOCOL in $DIRECTION at $BITRATE for ${DURATION}s, $TYPE handover at ${HANDOVER_AT}s"
 docker exec packetrusher ip vrf exec "$VRF" \
-  iperf3 -c "$DN_ADDR" -p "$IPERF_PORT" -t "$DURATION" -b "$BITRATE" -i 1 --forceflush "${IPERF_ARGS[@]}" \
+  iperf3 -c "$DN_ADDR" -p "$IPERF_PORT"  -t "$DURATION" -b "$BITRATE" -i 1 --forceflush "${IPERF_ARGS[@]}" \
   > "$BASE.iperf3.log" 2>&1 &
 IPERF_PID=$!
 

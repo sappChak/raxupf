@@ -193,7 +193,7 @@ registers it again on gNB `000002`.
 
 #### Handover with traffic
 
-[`scenarios/handover.sh`](scenarios/handover.sh) captures a complete handover
+[`scripts/handover.sh`](scripts/handover.sh) captures a complete handover
 with traffic:
 
 1. Deregister the UE and start capturing.
@@ -206,9 +206,9 @@ with traffic:
 ```sh
 COMPOSE_PROFILES=packetrusher docker compose up -d --build
 
-./scenarios/handover.sh xn                       # Xn handover, uplink iperf3
-REVERSE=1 ./scenarios/handover.sh ng             # N2 handover, downlink iperf3
-DURATION=30 HANDOVER_AT=15 BITRATE=5M ./scenarios/handover.sh xn
+./scripts/handover.sh xn                       # Xn handover, uplink iperf3
+REVERSE=1 ./scripts/handover.sh ng             # N2 handover, downlink iperf3
+DURATION=30 HANDOVER_AT=15 BITRATE=5M PROTOCOL=udp ./scripts/handover.sh xn
 ```
 
 | Variable      | Default     | Meaning                                  |
@@ -217,6 +217,7 @@ DURATION=30 HANDOVER_AT=15 BITRATE=5M ./scenarios/handover.sh xn
 | `HANDOVER_AT` | `10`        | seconds into iperf3 before the handover  |
 | `BITRATE`     | `2M`        | iperf3 `-b` (keeps the pcap small)       |
 | `REVERSE`     | `0`         | `1` for downlink traffic                 |
+| `PROTOCOL`    | `tcp`       | iperf3 protocol (`tcp` or `udp`)         |
 | `OUT`         | `captures/` | output directory (ignored by git)        |
 
 The script writes `captures/handover-<xn|ng>-<timestamp>.pcap` and the iperf3
@@ -235,7 +236,7 @@ The default bitrate gives about 6 MB of pcap for 20 s.
 
 #### One-off runs
 
-For other PacketRusher scenarios, run a one-off container with a different
+For other PacketRusher scripts, run a one-off container with a different
 subcommand. Stop the long-running one first, because both would use the same
 gNB addresses and IMSI:
 
@@ -306,7 +307,7 @@ docker exec ue ./nr-cli imsi-999700000000001 -e "ps-list"
 ```
 
 With PacketRusher, use the control socket (`prctl --ue 1 --action
-deregister` / `register`, see above) or `scenarios/handover.sh`.
+deregister` / `register`, see above) or `scripts/handover.sh`.
 
 PFCP heartbeats are frequent. Filter them out when reading a capture with
 `pfcp.msg_type != 1 && pfcp.msg_type != 2` in Wireshark or `tshark -Y`.
