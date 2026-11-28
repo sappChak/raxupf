@@ -3,12 +3,16 @@
 
 use core::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use aya_ebpf::{bindings::xdp_action, macros::xdp, programs::XdpContext};
+use aya_ebpf::{
+    bindings::xdp_action::{self},
+    macros::xdp,
+    programs::XdpContext,
+};
 use aya_log_ebpf::{debug, error, warn};
 use network_types::{eth::EtherType, ip::IpProto};
 use raxupf_common::{
     PROG_GTP, PROG_N6,
-    gtpu::{GTPU_DST_PORT, GtpuMessageType},
+    gtpu::{GTPU_PORT, GtpuMessageType},
 };
 use raxupf_ebpf::{
     gtpu::encapsulate_into_gtpu,
@@ -96,7 +100,10 @@ fn try_raxupf(ctx: &XdpContext) -> Result<u32, ()> {
     };
 
     let (parsed_ip, offset) = parse_ip_header(ctx, offset)?;
-    let (parsed_ports, offset) = unsafe { parse_l4_header(ctx, parsed_ip.proto(), offset)? };
+    let (parsed_ports, offset) = match unsafe { parse_l4_header(ctx, parsed_ip.proto(), offset) } {
+        Ok(v) => v,
+        Err(_) => return Ok(xdp_action::XDP_PASS),
+    };
     let packet_context = PacketContext::new(parsed_ip, parsed_ports, n3_ip);
 
     let slot = PKT_CTX.get_ptr_mut(0).ok_or(())?;
@@ -105,7 +112,7 @@ fn try_raxupf(ctx: &XdpContext) -> Result<u32, ()> {
 
     if let Some(ports) = pkt_ctx.ports()
         && *pkt_ctx.dst_ip() == n3_ip
-        && ports.dst_port() == GTPU_DST_PORT
+        && ports.dst_port() == GTPU_PORT
     {
         let parsed_gtp = match parse_gtp(ctx, n3_ip, offset) {
             Ok((gtp, _)) => gtp,

@@ -1,7 +1,7 @@
 use core::{mem, net::IpAddr};
 
 use aya_ebpf::{
-    bindings::{bpf_fib_lookup, xdp_action},
+    bindings::{BPF_FIB_LKUP_RET_NO_NEIGH, BPF_FIB_LKUP_RET_SUCCESS, bpf_fib_lookup, xdp_action},
     helpers::{bpf_fib_lookup, generated::bpf_csum_diff},
     programs::XdpContext,
 };
@@ -246,8 +246,8 @@ pub fn get_fib_macs(
             )
         }
         (IpAddr::V6(src_ipv6), IpAddr::V6(dst_ipv6)) => {
-            let src_ip = u128_to_u324(u128::to_be(src_ipv6.to_bits()));
-            let dst_ip = u128_to_u324(u128::to_be(dst_ipv6.to_bits()));
+            let src_ip = u128_to_u324(src_ipv6.to_bits());
+            let dst_ip = u128_to_u324(dst_ipv6.to_bits());
             do_fib_lookup6(
                 ctx,
                 &mut fib,
@@ -261,11 +261,19 @@ pub fn get_fib_macs(
         _ => return None,
     };
 
-    if rc != 0 {
+    if rc < 0 {
         return None;
     }
 
-    Some(FibMacs::new(fib.smac, fib.dmac))
+    match rc as u32 {
+        BPF_FIB_LKUP_RET_SUCCESS => {}
+        BPF_FIB_LKUP_RET_NO_NEIGH => {
+            // TODO: do something with NO_NEIGH
+        }
+        _ => return None,
+    }
+
+    Some(FibMacs::new(fib.smac, fib.dmac, fib.ifindex))
 }
 
 #[inline(always)]
@@ -311,7 +319,7 @@ pub fn route_packet_l2(
             fib,
         );
     }
-    if ingress_ifindex as usize == ctx.ingress_ifindex() {
+    if fib.ifindex() as usize == ctx.ingress_ifindex() {
         debug!(ctx, "ifindex from fib is the same, xdp_tx'ing packet");
         return Ok(xdp_action::XDP_TX);
     }

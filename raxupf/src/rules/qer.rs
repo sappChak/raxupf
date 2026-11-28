@@ -11,13 +11,13 @@ pub fn create_qer_rule(received_qer: CreateQer, session: &mut PfcpSession) -> an
 
     if let Some(status) = received_qer.gate_status {
         match status.downlink_gate {
-            GateStatusValue::Open => qer_info.set_dl_gate_status(GateStatus::Open),
-            GateStatusValue::Closed => qer_info.set_dl_gate_status(GateStatus::Closed),
+            GateStatusValue::Open => qer_info.set_dl_gate_status(GateStatus::OPEN),
+            GateStatusValue::Closed => qer_info.set_dl_gate_status(GateStatus::CLOSED),
         }
 
         match status.uplink_gate {
-            GateStatusValue::Open => qer_info.set_ul_gate_status(GateStatus::Open),
-            GateStatusValue::Closed => qer_info.set_ul_gate_status(GateStatus::Closed),
+            GateStatusValue::Open => qer_info.set_ul_gate_status(GateStatus::OPEN),
+            GateStatusValue::Closed => qer_info.set_ul_gate_status(GateStatus::CLOSED),
         }
     }
 

@@ -1,11 +1,11 @@
 use log::debug;
-use raxupf_common::far::{DestinationInterfacePod, FarInfo};
-use rs_pfcp::{
-    error::PfcpError,
-    ie::{
-        create_far::CreateFar, destination_interface::Interface, failed_rule_id::FailedRuleId,
-        update_far::UpdateFar,
-    },
+use raxupf_common::{
+    far::{DestinationInterfacePod, FarInfo},
+    fteid::Teid,
+};
+use rs_pfcp::ie::{
+    create_far::CreateFar, destination_interface::Interface, failed_rule_id::FailedRuleId,
+    update_far::UpdateFar,
 };
 
 use crate::{rules::helpers::ohc_description_to_flags, session::PfcpSession};
@@ -37,13 +37,13 @@ pub fn create_far_rule(received_far: CreateFar, session: &mut PfcpSession) -> an
 
         if let Some(ohc) = fp.outer_header_creation {
             let teid = ohc.teid.unwrap();
-            far_info.set_teid(teid.value());
+            far_info.set_teid(Teid::new(teid.value()));
             // TODO: do not hope for the best
             if let Some(remote_ipv4) = ohc.ipv4_address {
-                far_info.set_remote_ipv4(remote_ipv4.to_bits());
+                far_info.set_remote_ipv4(remote_ipv4.octets());
             }
             if let Some(remote_ipv6) = ohc.ipv6_address {
-                far_info.set_remote_ipv6(remote_ipv6.to_bits());
+                far_info.set_remote_ipv6(remote_ipv6.octets());
             }
             let flags = ohc_description_to_flags(ohc.description);
             far_info.set_ohc(flags);
@@ -82,11 +82,11 @@ pub fn update_far_rule(received_far: UpdateFar, session: &mut PfcpSession) {
 
             if let Some(update_ohc) = update_fp.outer_header_creation {
                 if let Some(teid) = update_ohc.teid {
-                    far.set_teid(teid.value());
+                    far.set_teid(Teid::new(teid.value()));
                 }
 
                 if let Some(remote_ip) = update_ohc.ipv4_address {
-                    far.set_remote_ipv4(remote_ip.to_bits());
+                    far.set_remote_ipv4(remote_ip.octets());
                 }
 
                 let flags = ohc_description_to_flags(update_ohc.description);

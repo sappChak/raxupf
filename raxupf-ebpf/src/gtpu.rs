@@ -7,9 +7,9 @@ use network_types::{
     udp::UdpHdr,
 };
 use raxupf_common::gtpu::{
-    DL_PDU_TYPE, DLPduSession, GTP_PROTOCOL_TYPE, GTP_VERSION, GTPU_DST_PORT, GTPU_EXT_LEN,
-    GTPU_HDR_LEN, GtpuDLPduExtensionHdr, GtpuExtensionType, GtpuHdr, GtpuMessageType,
-    GtpuOptFields, OUTER_HDRS_LEN_SUM,
+    DL_PDU_TYPE, DLPduSession, GTP_PROTOCOL_TYPE, GTP_VERSION, GTPU_EXT_LEN, GTPU_HDR_LEN,
+    GTPU_PORT, GtpuDLPduExtensionHdr, GtpuExtensionType, GtpuHdr, GtpuMessageType, GtpuOptFields,
+    OUTER_HDRS_LEN_SUM,
 };
 
 use crate::helpers::{csum_replace4, ipv4_csum, ptr_at, ptr_at_mut};
@@ -51,7 +51,7 @@ pub fn encapsulate_into_gtpu(
     let udph: &mut UdpHdr = unsafe { &mut *ptr_at_mut(ctx, EthHdr::LEN + Ipv4Hdr::LEN)? };
     // GTP-U header + old IP header is the UDP payload
     let nudh_len = ((UdpHdr::LEN + GTPU_HDR_LEN) as u16) + oiph_len;
-    initialize_udp_header(udph, GTPU_DST_PORT, GTPU_DST_PORT, nudh_len);
+    initialize_udp_header(udph, GTPU_PORT, GTPU_PORT, nudh_len);
 
     let gtpuh: &mut GtpuHdr =
         unsafe { &mut *ptr_at_mut(ctx, EthHdr::LEN + Ipv4Hdr::LEN + UdpHdr::LEN)? };

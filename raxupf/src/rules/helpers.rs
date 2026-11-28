@@ -84,7 +84,7 @@ pub async fn parse_fteid(ctx: &PfcpContext, fteid: &Fteid) -> anyhow::Result<Fte
     if fteid.ch {
         let mut fteid_pod = FteidPod::default();
         if fteid.v4 {
-            fteid_pod.set_ipv4_address(ctx.gtp_addr_v4().to_bits());
+            fteid_pod.set_ipv4_address(ctx.gtp_addr_v4().octets());
         }
         if fteid.v6 {
             match ctx.gtp_addr_v6() {
@@ -129,11 +129,11 @@ pub async fn parse_ue_ip(ctx: &PfcpContext, ue_ip_ie: &UeIpAddress) -> anyhow::R
     let mut ue_ip_pod = UeIpPod::default();
     if ue_ip_ie.choose_ipv4 {
         let ue_ipv4 = ctx.allocate_ue_ipv4().await?;
-        ue_ip_pod.set_ipv4_address(ue_ipv4.to_bits());
+        ue_ip_pod.set_ipv4_address(ue_ipv4.octets());
     } else if ue_ip_ie.v4 {
         match ue_ip_ie.ipv4_address {
             Some(ipv4_addr) => {
-                ue_ip_pod.set_ipv4_address(ipv4_addr.to_bits());
+                ue_ip_pod.set_ipv4_address(ipv4_addr.octets());
             }
             None => {
                 bail!("ue ip address ie has v4 flag set but no ipv4 address provided in the ie")
@@ -143,11 +143,11 @@ pub async fn parse_ue_ip(ctx: &PfcpContext, ue_ip_ie: &UeIpAddress) -> anyhow::R
 
     if ue_ip_ie.choose_ipv6 {
         let ue_ipv6 = ctx.allocate_ue_ipv6().await?;
-        ue_ip_pod.set_ipv6_address(ue_ipv6.to_bits());
+        ue_ip_pod.set_ipv6_address(ue_ipv6.octets());
     } else if ue_ip_ie.v6 {
         match ue_ip_ie.ipv6_address {
             Some(ipv6_addr) => {
-                ue_ip_pod.set_ipv6_address(ipv6_addr.to_bits());
+                ue_ip_pod.set_ipv6_address(ipv6_addr.octets());
             }
             None => {
                 bail!("ue ip address ie has v6 flag set but no ipv6 address provided in the ie")
@@ -181,7 +181,7 @@ pub fn fteid_pod_to_ie(fteid_pod: &FteidPod) -> rs_pfcp::ie::f_teid::Fteid {
 
 pub fn fteid_ie_to_pod(fteid: &Fteid) -> FteidPod {
     let mut fteid_pod = FteidPod::default();
-    if let Some(ipv4_address) = fteid.ipv4_address.map(|addr| addr.to_bits()) {
+    if let Some(ipv4_address) = fteid.ipv4_address.map(|addr| addr.octets()) {
         fteid_pod.set_ipv4_address(ipv4_address);
     }
     if let Some(ipv6_address) = fteid.ipv6_address.map(|addr| addr.octets()) {

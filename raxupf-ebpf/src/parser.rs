@@ -325,14 +325,14 @@ pub fn parse_gtpu_header(
     let local_fteid = match upf_ip {
         IpAddr::V4(ipv4_addr) => FteidPod::new(
             Teid::new(gtpuh.teid()),
-            ipv4_addr.to_bits(),
+            ipv4_addr.octets(),
             Ipv6Addr::UNSPECIFIED.octets(),
             true,
             false,
         ),
         IpAddr::V6(ipv6_addr) => FteidPod::new(
             Teid::new(gtpuh.teid()),
-            Ipv4Addr::UNSPECIFIED.to_bits(),
+            Ipv4Addr::UNSPECIFIED.octets(),
             ipv6_addr.octets(),
             false,
             true,

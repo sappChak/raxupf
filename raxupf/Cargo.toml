@@ -5,6 +5,12 @@ edition.workspace = true
 
 license.workspace = true
 
+[dev-dependencies]
+aya-ebpf = { workspace = true }
+aya-log-ebpf = { workspace = true }
+network-types = "0.2"
+etherparse = "0.21"
+
 [dependencies]
 raxupf-common = { path = "../raxupf-common", features = ["user"] }
 

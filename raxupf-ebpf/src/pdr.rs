@@ -73,14 +73,14 @@ fn ue_ip_matches(pdi: &PdiPod, ue_ip: &IpAddr) -> bool {
     match ue_ip {
         IpAddr::V4(ue_ipv4) => {
             if pdi.ue_ip_address().is_v4()
-                && pdi.ue_ip_address().ipv4_address() != ue_ipv4.to_bits()
+                && pdi.ue_ip_address().ipv4_address() != ue_ipv4.octets()
             {
                 return false;
             }
         }
         IpAddr::V6(ue_ipv6) => {
             if pdi.ue_ip_address().is_v6()
-                && pdi.ue_ip_address().ipv6_address() != ue_ipv6.to_bits()
+                && pdi.ue_ip_address().ipv6_address() != ue_ipv6.octets()
             {
                 return false;
             }
@@ -168,18 +168,18 @@ pub fn process_pdrs(
         let (action, remote_ip) = match (tunnelled, ohr_gtpu, ohc_gtpu) {
             (true, true, true) => {
                 let remote_ip = if far.ohc().contains(OhcFlags::GTPU_UDP_IPV4) {
-                    IpAddr::V4(Ipv4Addr::from_bits(far.remote_ipv4()))
+                    IpAddr::V4(Ipv4Addr::from(far.remote_ipv4()))
                 } else {
-                    IpAddr::V6(Ipv6Addr::from_bits(far.remote_ipv6()))
+                    IpAddr::V6(Ipv6Addr::from(far.remote_ipv6()))
                 };
                 (PdrAction::Forward, remote_ip)
             }
             (true, true, false) => (PdrAction::Remove, IpAddr::V4(Ipv4Addr::UNSPECIFIED)),
             (false, false, true) => {
                 let remote_ip = if far.ohc().contains(OhcFlags::GTPU_UDP_IPV4) {
-                    IpAddr::V4(Ipv4Addr::from_bits(far.remote_ipv4()))
+                    IpAddr::V4(Ipv4Addr::from(far.remote_ipv4()))
                 } else {
-                    IpAddr::V6(Ipv6Addr::from_bits(far.remote_ipv6()))
+                    IpAddr::V6(Ipv6Addr::from(far.remote_ipv6()))
                 };
                 (PdrAction::Create, remote_ip)
             }
@@ -227,7 +227,7 @@ pub fn process_pdrs(
             }
         }
 
-        let remote_teid = far.teid(); // gNB's or PSA-UPF's allocated TEID
+        let remote_teid = far.teid().value(); // gNB's or PSA-UPF's allocated TEID
         let parsed_pdr = ParsedPdr::new(remote_teid, qfi, far.dscp(), remote_ip, action);
         return Ok(parsed_pdr);
     }

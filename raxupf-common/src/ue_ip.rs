@@ -29,8 +29,8 @@ impl UeIpPod {
         self.v6.get()
     }
 
-    pub fn ipv4_address(&self) -> u32 {
-        u32::from_be_bytes(self.ipv4_address)
+    pub fn ipv4_address(&self) -> [u8; 4] {
+        self.ipv4_address
     }
 
     pub fn set_ipv4_address(&mut self, ipv4_address: [u8; 4]) {
@@ -38,8 +38,8 @@ impl UeIpPod {
         self.ipv4_address = ipv4_address;
     }
 
-    pub fn ipv6_address(&self) -> u128 {
-        u128::from_be_bytes(self.ipv6_address)
+    pub fn ipv6_address(&self) -> [u8; 16] {
+        self.ipv6_address
     }
 
     pub fn set_ipv6_address(&mut self, ipv6_address: [u8; 16]) {
