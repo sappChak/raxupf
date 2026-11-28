@@ -1,6 +1,9 @@
 use bitflags::bitflags;
 
+use crate::{PodBool, fteid::Teid};
+
 bitflags! {
+    #[repr(transparent)]
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
     pub struct FarAction: u8 {
         const DROP = 1 << 0; // Bit 1
@@ -44,31 +47,37 @@ bitflags! {
 #[derive(Clone, Copy)]
 pub struct OuterHeaderCreation {
     flags: OhcFlags,
-    teid: u32,
-    ipv4_address: u32,
+    teid: Teid,
+    ipv4_address: [u8; 4],
     port_number: u16,
 }
 
+/// Fields are ordered so that the only padding is the explicit `_pad`.
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FarInfo {
     destination_interface: DestinationInterfacePod,
     action: FarAction,
     dscp: u8,
-    teid: u32,
-    remote_ipv4: u32,
-    remote_ipv6: u128,
     ohc: OhcFlags,
-    allocated: bool,
+    teid: Teid,
+    remote_ipv4: [u8; 4],
+    remote_ipv6: [u8; 16],
+    allocated: PodBool,
+    _pad: [u8; 3],
 }
+
+crate::assert_no_padding!(FarInfo:
+    DestinationInterfacePod, FarAction, u8, OhcFlags, Teid, [u8; 4], [u8; 16], PodBool, [u8; 3]
+);
 
 impl FarInfo {
     pub fn is_allocated(&self) -> bool {
-        self.allocated
+        self.allocated.get()
     }
 
     pub fn set_allocated(&mut self, allocated: bool) {
-        self.allocated = allocated;
+        self.allocated = allocated.into();
     }
 
     pub fn destination_interface(&self) -> DestinationInterfacePod {
@@ -95,27 +104,27 @@ impl FarInfo {
         self.dscp = tos;
     }
 
-    pub fn teid(&self) -> u32 {
+    pub fn teid(&self) -> Teid {
         self.teid
     }
 
-    pub fn set_teid(&mut self, teid: u32) {
+    pub fn set_teid(&mut self, teid: Teid) {
         self.teid = teid;
     }
 
-    pub fn remote_ipv4(&self) -> u32 {
+    pub fn remote_ipv4(&self) -> [u8; 4] {
         self.remote_ipv4
     }
 
-    pub fn set_remote_ipv4(&mut self, remote_ipv4: u32) {
+    pub fn set_remote_ipv4(&mut self, remote_ipv4: [u8; 4]) {
         self.remote_ipv4 = remote_ipv4;
     }
 
-    pub fn remote_ipv6(&self) -> u128 {
+    pub fn remote_ipv6(&self) -> [u8; 16] {
         self.remote_ipv6
     }
 
-    pub fn set_remote_ipv6(&mut self, remote_ipv6: u128) {
+    pub fn set_remote_ipv6(&mut self, remote_ipv6: [u8; 16]) {
         self.remote_ipv6 = remote_ipv6;
     }
 
@@ -128,11 +137,15 @@ impl FarInfo {
     }
 }
 
+// SAFETY: repr(transparent) over u8; every bit pattern is a valid flag set.
 #[cfg(feature = "user")]
 unsafe impl aya::Pod for OhcFlags {}
 
+// SAFETY: repr(C), no padding (checked by assert_no_padding!), and every
+// field is valid for any bit pattern.
 #[cfg(feature = "user")]
 unsafe impl aya::Pod for FarInfo {}
 
+// SAFETY: repr(transparent) over u8; every bit pattern is a valid flag set.
 #[cfg(feature = "user")]
 unsafe impl aya::Pod for FarAction {}

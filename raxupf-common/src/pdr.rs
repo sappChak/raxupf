@@ -1,6 +1,6 @@
 use bitflags::bitflags;
 
-use crate::{QER_MAP_SIZE, URR_MAP_SIZE, pdi::PdiPod};
+use crate::{PodBool, QER_MAP_SIZE, URR_MAP_SIZE, pdi::PdiPod};
 
 bitflags! {
     #[repr(transparent)]
@@ -59,15 +59,26 @@ impl TryFrom<u8> for OhrPod {
 #[repr(C)]
 #[derive(PartialEq, Eq, Debug, Default, Clone, Copy)]
 pub struct PdrInfo {
-    pub pdr_id: u16,
     pub precedence: u32,
-    pub outer_header_removal: OhrPod,
-    pub pdi: PdiPod,
     pub far_id: u32,
     pub qer_ids: [u32; QER_MAP_SIZE],
     pub urr_ids: [u32; URR_MAP_SIZE],
-    pub allocated: bool,
+    pub pdi: PdiPod,
+    pub pdr_id: u16,
+    pub outer_header_removal: OhrPod,
+    pub allocated: PodBool,
 }
+
+crate::assert_no_padding!(PdrInfo:
+    u32,
+    u32,
+    [u32; QER_MAP_SIZE],
+    [u32; URR_MAP_SIZE],
+    PdiPod,
+    u16,
+    OhrPod,
+    PodBool,
+);
 
 impl PdrInfo {
     pub fn new(pdr_id: u16) -> Self {
@@ -79,16 +90,16 @@ impl PdrInfo {
             far_id: 0,
             qer_ids: [0; QER_MAP_SIZE],
             urr_ids: [0; URR_MAP_SIZE],
-            allocated: false,
+            allocated: PodBool::FALSE,
         }
     }
 
     pub fn is_allocated(&self) -> bool {
-        self.allocated
+        self.allocated.get()
     }
 
     pub fn set_allocated(&mut self, allocated: bool) {
-        self.allocated = allocated;
+        self.allocated = allocated.into();
     }
 
     pub fn pdr_id(&self) -> u16 {
@@ -148,8 +159,12 @@ impl PdrInfo {
     }
 }
 
+// SAFETY: repr(C), no padding (checked by assert_no_padding!), and every field is valid for any bit
+// pattern.
 #[cfg(feature = "user")]
 unsafe impl aya::Pod for PdrInfo {}
 
+// SAFETY: repr(transparent) over u8; every value is valid (unknown values are not one of the named
+// constants).
 #[cfg(feature = "user")]
 unsafe impl aya::Pod for OhrPod {}

@@ -12,7 +12,7 @@ use core::mem;
 
 use network_types::{getter_be, ip::Ipv4Hdr, setter_be, udp::UdpHdr};
 
-pub const GTPU_DST_PORT: u16 = 2152; // per 3GPP TS 29.281 Rel 17
+pub const GTPU_PORT: u16 = 2152; // per 3GPP TS 29.281 Rel 17
 pub const GTP_PROTOCOL_TYPE: u8 = 1; // Distinguish between GTP' and GTP
 pub const GTP_VERSION: u8 = 1; // GTP-U is Version 1
 pub const DL_PDU_TYPE: u8 = 0; // DL PDU SESSION INFORMATION, TS 38.415
@@ -22,10 +22,16 @@ pub const GTPU_EXT_LEN: usize = GtpuOptFields::LEN + GtpuDLPduExtensionHdr::LEN;
 pub const GTPU_HDR_LEN: usize = GtpuHdr::LEN + GTPU_EXT_LEN;
 pub const OUTER_HDRS_LEN_SUM: usize = Ipv4Hdr::LEN + UdpHdr::LEN + GTPU_HDR_LEN;
 
+/// Mask of the 4-bit PDU Type in the first octet of a PDU Session Information frame.
+const PDU_TYPE_MASK: u8 = 0xF0;
+/// Mask of the 6-bit QFI in the second octet of a PDU Session Information frame.
+const QFI_MASK: u8 = 0x3F;
+
 /// Mandatory part of the GTP-U header, Figure 5.1-1, 3GPP TS 29.281.
 ///
 /// First octet: | Version (3) | PT (1) | Spare (1) | E (1) | S (1) | PN (1) |
 #[repr(C)]
+#[derive(Default)]
 pub struct GtpuHdr {
     v_pt_flags: u8,
     msg_type: u8,
@@ -35,6 +41,7 @@ pub struct GtpuHdr {
 
 /// Optional fields present when any of E, S or PN is set, Figure 5.1-1, 3GPP TS 29.281.
 #[repr(C)]
+#[derive(Default)]
 pub struct GtpuOptFields {
     seq_number: [u8; 2],
     npdu_num: u8,
@@ -135,6 +142,18 @@ impl GtpuHdr {
     const E_MASK: u8 = 0x04;
     const S_MASK: u8 = 0x02;
     const PN_MASK: u8 = 0x01;
+
+    #[inline]
+    pub fn new(teid: u32, len: u16) -> Result<Self, ()> {
+        let mut gtpuh = GtpuHdr::default();
+        gtpuh.set_version(GTP_VERSION)?;
+        gtpuh.set_message_type(GtpuMessageType::GPdu.into());
+        gtpuh.set_message_length(len);
+        gtpuh.set_protocol_type(GTP_PROTOCOL_TYPE)?;
+        gtpuh.set_extension_header(true);
+        gtpuh.set_teid(teid);
+        Ok(gtpuh)
+    }
 
     /// Gets the 3-bit Version value.
     #[inline]
@@ -246,6 +265,15 @@ impl GtpuHdr {
 impl GtpuOptFields {
     pub const LEN: usize = mem::size_of::<GtpuOptFields>();
 
+    #[inline]
+    pub fn new() -> Self {
+        let mut opth = GtpuOptFields::default();
+        opth.set_sequence_number(0);
+        opth.set_npdu_number(0);
+        opth.set_next_extension_header(GtpuExtensionType::PduSessionContainer.into());
+        opth
+    }
+
     /// Gets the Sequence Number in Host Byte Order
     #[inline]
     pub fn sequence_number(&self) -> u16 {
@@ -300,6 +328,55 @@ pub struct GtpuULPduExtensionHdr {
     next_ext_hdr_type: u8,
 }
 
+impl GtpuULPduExtensionHdr {
+    pub const LEN: usize = mem::size_of::<GtpuDLPduExtensionHdr>();
+
+    pub fn new(qfi: u8) -> Result<Self, ()> {
+        let mut pduh = GtpuULPduExtensionHdr {
+            length: 0,
+            content: ULPduSession::default(),
+            next_ext_hdr_type: GtpuExtensionType::NoMoreExtensions.into(),
+        };
+        pduh.set_length(Self::LEN as u8 / 4);
+        pduh.content.set_pdu_type(UL_PDU_TYPE)?;
+        pduh.content.set_qfi(qfi)?;
+        Ok(pduh)
+    }
+
+    /// Gets the extension header length in 4-octet units.
+    #[inline]
+    pub fn length(&self) -> u8 {
+        self.length
+    }
+
+    /// Sets the extension header length in 4-octet units.
+    #[inline]
+    pub fn set_length(&mut self, length: u8) {
+        self.length = length;
+    }
+
+    #[inline]
+    pub fn content(&self) -> &ULPduSession {
+        &self.content
+    }
+
+    #[inline]
+    pub fn set_content(&mut self, content: ULPduSession) {
+        self.content = content
+    }
+
+    /// Gets the Next Extension Header Type; unknown types are returned as `Err(raw)`.
+    #[inline]
+    pub fn next_extension_header_type(&self) -> Result<GtpuExtensionType, u8> {
+        GtpuExtensionType::try_from(self.next_ext_hdr_type)
+    }
+
+    #[inline]
+    pub fn set_next_extension_header(&mut self, neh_type: u8) {
+        self.next_ext_hdr_type = neh_type;
+    }
+}
+
 /// DL PDU SESSION INFORMATION as per 3GPP TS 38.415
 ///
 /// Octet 1: | PDU Type (4) | QMP | SNP | MSNP | Spare |
@@ -316,18 +393,55 @@ pub struct DLPduSession {
 /// Octet 1: | PDU Type (4) | flags (4) |
 /// Octet 2: | flags (2) | QFI (6) |
 #[repr(C)]
+#[derive(Default)]
 pub struct ULPduSession {
     pt_flags: u8,
     n39di_nie_qfi: u8,
 }
 
-/// Mask of the 4-bit PDU Type in the first octet of a PDU Session Information frame.
-const PDU_TYPE_MASK: u8 = 0xF0;
-/// Mask of the 6-bit QFI in the second octet of a PDU Session Information frame.
-const QFI_MASK: u8 = 0x3F;
+impl ULPduSession {
+    pub const LEN: usize = mem::size_of::<ULPduSession>();
+
+    /// Gets the 4-bit PDU Type.
+    #[inline]
+    pub fn pdu_type(&self) -> u8 {
+        (self.pt_flags & PDU_TYPE_MASK) >> 4
+    }
+
+    /// Sets the 4-bit PDU Type. Fails if `pdu_type` > 15.
+    #[inline]
+    pub fn set_pdu_type(&mut self, pdu_type: u8) -> Result<(), ()> {
+        set_bits(&mut self.pt_flags, PDU_TYPE_MASK, 4, pdu_type)
+    }
+
+    /// Gets the 6-bit QoS Flow Identifier.
+    #[inline]
+    pub fn qfi(&self) -> u8 {
+        self.n39di_nie_qfi & QFI_MASK
+    }
+
+    /// Sets the 6-bit QoS Flow Identifier. Fails if `qfi` > 63.
+    #[inline]
+    pub fn set_qfi(&mut self, qfi: u8) -> Result<(), ()> {
+        set_bits(&mut self.n39di_nie_qfi, QFI_MASK, 0, qfi)
+    }
+}
 
 impl GtpuDLPduExtensionHdr {
     pub const LEN: usize = mem::size_of::<GtpuDLPduExtensionHdr>();
+
+    #[inline]
+    pub fn new(qfi: u8) -> Result<Self, ()> {
+        let mut pduh = GtpuDLPduExtensionHdr {
+            length: 0,
+            content: DLPduSession::default(),
+            next_ext_hdr_type: GtpuExtensionType::NoMoreExtensions.into(),
+        };
+        pduh.set_length(Self::LEN as u8 / 4);
+        pduh.content.set_pdu_type(DL_PDU_TYPE)?;
+        pduh.content.set_qfi(qfi)?;
+        Ok(pduh)
+    }
 
     /// Gets the extension header length in 4-octet units.
     #[inline]
@@ -449,22 +563,6 @@ impl DLPduSession {
     #[inline]
     pub fn set_qfi(&mut self, qfi: u8) -> Result<(), ()> {
         set_bits(&mut self.flags_qfi, QFI_MASK, 0, qfi)
-    }
-}
-
-impl ULPduSession {
-    pub const LEN: usize = mem::size_of::<ULPduSession>();
-
-    /// Gets the 4-bit PDU Type.
-    #[inline]
-    pub fn pdu_type(&self) -> u8 {
-        (self.pt_flags & PDU_TYPE_MASK) >> 4
-    }
-
-    /// Gets the 6-bit QoS Flow Identifier.
-    #[inline]
-    pub fn qfi(&self) -> u8 {
-        self.n39di_nie_qfi & QFI_MASK
     }
 }
 

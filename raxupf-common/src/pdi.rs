@@ -25,16 +25,30 @@ bitflags! {
     }
 }
 
+/// Fields are ordered from largest to smallest alignment so that the only
+/// padding is the explicit `_reserved` byte. It is `pub` only so that
+/// `PdiPod { .., ..Default::default() }` works outside this module; keep it zero.
 #[repr(C)]
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub struct PdiPod {
-    pub pdi_mask: PdiMask,
-    pub source_interface: SourceInterfacePod,
     pub fteid: FteidPod,
+    pub sdfs: [SdfFilterPod; SDF_MAP_SIZE],
+    pub pdi_mask: PdiMask,
     pub ue_ip_address: UeIpPod,
     pub qfis: [u8; MAX_QFI_NUM],
-    pub sdfs: [SdfFilterPod; SDF_MAP_SIZE],
+    pub source_interface: SourceInterfacePod,
+    pub _pad: [u8; 1],
 }
+
+crate::assert_no_padding!(PdiPod:
+    FteidPod,
+    [SdfFilterPod; SDF_MAP_SIZE],
+    PdiMask,
+    UeIpPod,
+    [u8; MAX_QFI_NUM],
+    SourceInterfacePod,
+    [u8; 1],
+);
 
 impl Default for PdiPod {
     fn default() -> Self {
@@ -51,6 +65,7 @@ impl PdiPod {
             ue_ip_address: UeIpPod::default(),
             qfis: [0; MAX_QFI_NUM],
             sdfs: [SdfFilterPod::default(); SDF_MAP_SIZE],
+            _pad: [0; 1],
         }
     }
 
@@ -107,5 +122,8 @@ impl PdiPod {
     }
 }
 
+// SAFETY: repr(C), no padding (checked by assert_no_padding!), and every
+// field is valid for any bit pattern (the bitflags types are repr(transparent)
+// over integers).
 #[cfg(feature = "user")]
 unsafe impl aya::Pod for PdiPod {}

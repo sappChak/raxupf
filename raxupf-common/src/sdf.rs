@@ -1,27 +1,37 @@
 use core::net::IpAddr;
 
+use crate::PodBool;
+
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct SdfFilterPod {
-    pub protocol: u8,
     pub src_ip: IpPod,
     pub dst_ip: IpPod,
     pub src_port_range: PortRange,
     pub dst_port_range: PortRange,
-    pub allocated: bool,
+    pub protocol: u8,
+    pub allocated: PodBool,
 }
+
+crate::assert_no_padding!(SdfFilterPod: IpPod, IpPod, PortRange, PortRange, u8, PodBool);
 
 #[repr(C)]
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct IpPod {
     version: u8,
-    ip: u128,
-    mask: u128,
+    ip: [u8; 16],
+    mask: [u8; 16],
 }
+
+crate::assert_no_padding!(IpPod: u8, [u8; 16], [u8; 16]);
 
 impl IpPod {
     pub fn new(version: u8, ip: u128, mask: u128) -> Self {
-        IpPod { version, ip, mask }
+        IpPod {
+            version,
+            ip: ip.to_be_bytes(),
+            mask: mask.to_be_bytes(),
+        }
     }
 
     pub fn is_v4(&self) -> bool {
@@ -33,23 +43,23 @@ impl IpPod {
     }
 
     pub fn ip(&self) -> u128 {
-        self.ip
+        u128::from_be_bytes(self.ip)
     }
 
     pub fn mask(&self) -> u128 {
-        self.mask
+        u128::from_be_bytes(self.mask)
     }
 
     pub fn set_v4(&mut self, ip: u32, mask: u32) {
         self.version = 4;
-        self.ip = ip as u128;
-        self.mask = mask as u128;
+        self.ip = (ip as u128).to_be_bytes();
+        self.mask = (mask as u128).to_be_bytes();
     }
 
     pub fn set_v6(&mut self, ip: u128, mask: u128) {
         self.version = 6;
-        self.ip = ip;
-        self.mask = mask;
+        self.ip = ip.to_be_bytes();
+        self.mask = mask.to_be_bytes();
     }
 }
 
@@ -59,6 +69,8 @@ pub struct PortRange {
     start: u16,
     end: u16,
 }
+
+crate::assert_no_padding!(PortRange: u16, u16);
 
 impl SdfFilterPod {
     #[inline(always)]
@@ -87,11 +99,11 @@ impl SdfFilterPod {
     }
 
     pub fn is_allocated(&self) -> bool {
-        self.allocated
+        self.allocated.get()
     }
 
     pub fn set_allocated(&mut self, allocated: bool) {
-        self.allocated = allocated;
+        self.allocated = allocated.into();
     }
 
     pub fn protocol(&self) -> u8 {
@@ -141,6 +153,8 @@ impl PortRange {
     }
 }
 
+// SAFETY (all three): repr(C), no padding (checked by assert_no_padding!),
+// and every field is valid for any bit pattern.
 #[cfg(feature = "user")]
 unsafe impl aya::Pod for SdfFilterPod {}
 
